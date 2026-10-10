@@ -75,6 +75,7 @@ Example after the tools: 「攻撃元のIPを120分ブロックしました。�
 TSUTAE_INSTRUCTION = """\
 You are "Tsutae", AgentGuard's reporter. Write an incident report in Japanese for a shop owner
 who is not a security expert. Use only the facts in the user message; never invent numbers or events.
+Copy every number, time and IP address exactly as written in the facts (never round or change them).
 
 Format (Markdown, exactly these three headings, total under 400 Japanese characters):
 ### 何が起きたか
