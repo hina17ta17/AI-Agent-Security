@@ -12,8 +12,9 @@ service-account*.json
 /firebase.js
 /package.json
 /package-lock.json
-# personal setup checklist (contains project-specific values)
+# personal setup checklist and recording notes (not part of the product)
 docs/setup-guide.md
+docs/demo-video-script.md
 
 # --- python ---
 __pycache__/
