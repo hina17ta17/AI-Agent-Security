@@ -13,11 +13,21 @@ def _int(name: str, default: int) -> int:
     return int(os.environ.get(name, default))
 
 
+# USD per 1M tokens (input, output). Thinking tokens are billed as output.
+MODEL_PRICES: dict[str, tuple[float, float]] = {
+    "gemini-3.8-flash": (0.75, 3.75),
+    "gemini-3.5-flash-lite": (0.30, 2.50),
+}
+DEFAULT_PRICE = (0.75, 3.75)
+
+
 @dataclass(frozen=True)
 class Settings:
     project_id: str
     region: str
-    model: str
+    model_analyst: str  # fast, bounded classification
+    model_defender: str  # tool use; safety rules are enforced in code, so speed wins
+    model_reporter: str  # writing quality (runs after the defense, so latency matters less)
     demo_location: str
     kms_key: str
     armor_location: str
@@ -30,10 +40,12 @@ class Settings:
     max_block_minutes: int
     fallback_block_minutes: int
     run_timeout_sec: int
-    price_input_per_mtok: float
-    price_output_per_mtok: float
     enable_cloud_trace: bool
     dev_mode: bool
+
+    @property
+    def models(self) -> set[str]:
+        return {self.model_analyst, self.model_defender, self.model_reporter}
 
 
 @lru_cache
@@ -49,7 +61,10 @@ def get_settings() -> Settings:
     return Settings(
         project_id=project,
         region=region,
-        model=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
+        model_analyst=os.environ.get("MODEL_ANALYST", "gemini-3.5-flash-lite"),
+        # Benchmarked 2026-10-11: flash-lite made the same policy-compliant decisions ~3x faster.
+        model_defender=os.environ.get("MODEL_DEFENDER", "gemini-3.5-flash-lite"),
+        model_reporter=os.environ.get("MODEL_REPORTER", "gemini-3.8-flash"),
         demo_location=os.environ.get("GEMINI_LOCATION", "global"),
         kms_key=os.environ.get(
             "KMS_KEY", f"projects/{project}/locations/{region}/keyRings/byok/cryptoKeys/tenant-gemini-key"
@@ -64,9 +79,6 @@ def get_settings() -> Settings:
         max_block_minutes=_int("MAX_BLOCK_MINUTES", 1440),
         fallback_block_minutes=_int("FALLBACK_BLOCK_MINUTES", 30),
         run_timeout_sec=_int("RUN_TIMEOUT_SEC", 90),
-        # gemini-3.8-flash list price (USD per 1M tokens); thoughts are billed as output.
-        price_input_per_mtok=float(os.environ.get("PRICE_INPUT_PER_MTOK", "0.75")),
-        price_output_per_mtok=float(os.environ.get("PRICE_OUTPUT_PER_MTOK", "3.75")),
         enable_cloud_trace=os.environ.get("ENABLE_CLOUD_TRACE", "false").lower() == "true",
         dev_mode=os.environ.get("DEV_MODE", "false").lower() == "true",
     )

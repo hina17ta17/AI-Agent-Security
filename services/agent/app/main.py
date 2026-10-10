@@ -6,32 +6,58 @@ The service requires authentication; only the Pub/Sub push identity may invoke i
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from google.cloud import firestore
+from google.genai import types
 from pydantic import ValidationError
 
-from .config import get_settings
+from .config import Settings, get_settings
 from .guard import Gatekeeper
+from .llm import _demo_client
 from .logs import log
 from .models import SecurityEvent
 from .pipeline import Pipeline
 from .store import Store
-from .telemetry import setup_tracing
+from .telemetry import flush_traces, setup_tracing
+
+
+async def warm_up(settings: Settings) -> None:
+    """The first Gemini call on a fresh instance is slow (connection + auth setup); pay it at startup."""
+    client = _demo_client(settings.project_id, settings.demo_location)
+
+    async def ping(model: str) -> None:
+        t0 = time.perf_counter()
+        try:
+            await client.aio.models.generate_content(
+                model=model, contents="ping", config=types.GenerateContentConfig(max_output_tokens=8))
+            log("INFO", "model warm-up done", model=model, seconds=round(time.perf_counter() - t0, 2))
+        except Exception as exc:
+            log("WARNING", "model warm-up failed", model=model, error=repr(exc)[:300])
+
+    await asyncio.gather(*(ping(m) for m in sorted(settings.models)))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = getattr(app.state, "settings", None) or get_settings()
     app.state.settings = settings
-    setup_tracing(settings.enable_cloud_trace)
+    setup_tracing(settings.enable_cloud_trace, settings.project_id)
     if not hasattr(app.state, "pipeline"):
         store = Store(firestore.AsyncClient(project=settings.project_id))
         gatekeeper = Gatekeeper(settings.armor_location, settings.armor_input_template,
                                 settings.armor_output_template)
         app.state.pipeline = Pipeline(settings, store, gatekeeper)
+        if not settings.dev_mode:
+            # Awaited during startup (CPU is fully allocated then); bounded so startup never hangs.
+            try:
+                await asyncio.wait_for(warm_up(settings), timeout=25)
+            except TimeoutError:
+                log("WARNING", "model warm-up timed out")
     yield
 
 
@@ -60,6 +86,8 @@ async def pubsub_push(request: Request):
         # Acknowledge to avoid re-running tools on redelivery; the error is in the logs.
         log("ERROR", "pipeline crashed", eventId=event.event_id, error=repr(exc)[:500])
         return Response(status_code=204)
+    finally:
+        await asyncio.to_thread(flush_traces)  # before responding: CPU is throttled afterwards
     log("INFO", "event handled", eventId=event.event_id, outcome=outcome)
     return Response(status_code=204)
 

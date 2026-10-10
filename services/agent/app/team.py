@@ -24,7 +24,7 @@ from . import prompts
 from .context import Incident
 from .guard import Gatekeeper
 from .models import SEVERITY_ORDER, Verdict
-from .tools import build_defender_tools, do_watch
+from .tools import build_defender_tools, do_block, do_watch
 
 AGENT_NAMES = ("shirabe", "mamoru", "tsutae")
 
@@ -57,13 +57,30 @@ def normalize_verdict(raw, ai_targeted_by_guard: bool) -> Verdict:
     return verdict.model_copy(update=updates)
 
 
+POLICY_BLOCK_MINUTES = {"low": 15, "medium": 30, "high": 120, "critical": 720}
+
+
+async def enforce_defense_floor(inc: Incident) -> None:
+    """If the defender left a DEFEND incident without blocking the attacker, the rules do it."""
+    if inc.route != "DEFEND" or any(a["type"] == "block_ip" for a in inc.actions):
+        return
+    severity = inc.verdict.severity if inc.verdict else "high"
+    await inc.step("system", "policy", "防御の手順なのにブロックが行われていなかったため、ルールにより補完します。")
+    await do_block(inc, POLICY_BLOCK_MINUTES[severity], "（ルール）防御の基準に基づく自動ブロック", "system:policy")
+
+
 def _planner(include_thoughts: bool) -> BuiltInPlanner:
     return BuiltInPlanner(thinking_config=types.ThinkingConfig(include_thoughts=include_thoughts, thinking_level="LOW"))
 
 
 def build_team(inc: Incident, client: genai.Client, gatekeeper: Gatekeeper) -> Workflow:
-    model = Gemini(model=inc.settings.model, client=client,
-                   retry_options=types.HttpRetryOptions(attempts=2, initial_delay=1.0))
+    """One client per incident (tenant key or demo), one model per role."""
+    retry = types.HttpRetryOptions(attempts=2, initial_delay=1.0)
+
+    def model(name: str) -> Gemini:
+        return Gemini(model=name, client=client, retry_options=retry)
+
+    s = inc.settings
 
     async def bannin(node_input):
         """Gatekeeper: screen the attacker payload before any AI sees it."""
@@ -87,12 +104,11 @@ def build_team(inc: Incident, client: genai.Client, gatekeeper: Gatekeeper) -> W
     shirabe = LlmAgent(
         name="shirabe",
         description="Analyst: classifies the blocked request.",
-        model=model,
+        model=model(s.model_analyst),  # fast model: classification is a bounded task
         instruction=prompts.SHIRABE_INSTRUCTION,
         include_contents="none",
         output_schema=Verdict,
         output_key="verdict",
-        planner=_planner(include_thoughts=True),
     )
 
     async def sentry(node_input):
@@ -111,7 +127,7 @@ def build_team(inc: Incident, client: genai.Client, gatekeeper: Gatekeeper) -> W
     mamoru = LlmAgent(
         name="mamoru",
         description="Defender: decides and executes the response with policy-enforced tools.",
-        model=model,
+        model=model(s.model_defender),
         instruction=prompts.MAMORU_INSTRUCTION,
         include_contents="none",
         tools=build_defender_tools(inc),
@@ -119,7 +135,8 @@ def build_team(inc: Incident, client: genai.Client, gatekeeper: Gatekeeper) -> W
     )
 
     async def handoff(node_input):
-        """Mamoru's free text is not forwarded; the reporter gets code-built facts only."""
+        """Policy floor, then hand code-built facts (not Mamoru's free text) to the reporter."""
+        await enforce_defense_floor(inc)
         return Event(output=prompts.reporter_brief(inc))
 
     async def watch(node_input):
@@ -133,7 +150,7 @@ def build_team(inc: Incident, client: genai.Client, gatekeeper: Gatekeeper) -> W
     tsutae = LlmAgent(
         name="tsutae",
         description="Reporter: writes a plain-Japanese incident report.",
-        model=model,
+        model=model(s.model_reporter),
         instruction=prompts.TSUTAE_INSTRUCTION,
         include_contents="none",
         planner=_planner(include_thoughts=False),

@@ -55,10 +55,11 @@ POLICY:
 - block_ip: blocks the incident's attacker IP. Minutes guide: medium=30, high=60-240, critical=720-1440.
   If targets_ai is true, block for at least 240 minutes.
 - watch_ip: for low or medium severity when blocking is unnecessary.
-- request_isolation: asks the human owner to put the site into maintenance mode. Only for critical
-  severity when the site itself may be compromised. It does nothing until a human approves it.
+- request_isolation: asks the human owner to put the site into maintenance mode. It does nothing until
+  a human approves it. For critical severity when the site itself may be compromised (for example
+  command injection), call block_ip FIRST and then ALSO call request_isolation.
 - If a tool refuses, accept it and do not retry with different values.
-- Finish with ONE short Japanese sentence summarizing what you did.
+- Finish with ONE short Japanese sentence summarizing what you did. Do not mention field names.
 """
 
 TSUTAE_INSTRUCTION = """\

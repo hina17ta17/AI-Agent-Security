@@ -5,29 +5,42 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from .config import Settings
+from .config import DEFAULT_PRICE, MODEL_PRICES, Settings
 from .guard import GuardResult
 from .models import SecurityEvent, Verdict
 from .store import Store
+
+
+def price_for(model: str | None) -> tuple[float, float]:
+    for name, price in MODEL_PRICES.items():
+        if model and model.startswith(name):
+            return price
+    return DEFAULT_PRICE
 
 
 @dataclass
 class Usage:
     input_tokens: int = 0
     output_tokens: int = 0  # includes thinking tokens (billed as output)
+    cost: float = 0.0
+    by_model: dict = field(default_factory=dict)
 
-    def add(self, meta) -> None:
+    def add(self, meta, model: str | None) -> None:
         if meta is None:
             return
-        self.input_tokens += meta.prompt_token_count or 0
-        self.output_tokens += (meta.candidates_token_count or 0) + (meta.thoughts_token_count or 0)
+        tokens_in = meta.prompt_token_count or 0
+        tokens_out = (meta.candidates_token_count or 0) + (meta.thoughts_token_count or 0)
+        self.input_tokens += tokens_in
+        self.output_tokens += tokens_out
+        price_in, price_out = price_for(model)
+        self.cost += tokens_in / 1e6 * price_in + tokens_out / 1e6 * price_out
+        key = model or "unknown"
+        entry = self.by_model.setdefault(key, {"inputTokens": 0, "outputTokens": 0})
+        entry["inputTokens"] += tokens_in
+        entry["outputTokens"] += tokens_out
 
-    def cost_usd(self, settings: Settings) -> float:
-        return round(
-            self.input_tokens / 1e6 * settings.price_input_per_mtok
-            + self.output_tokens / 1e6 * settings.price_output_per_mtok,
-            6,
-        )
+    def cost_usd(self) -> float:
+        return round(self.cost, 6)
 
 
 @dataclass

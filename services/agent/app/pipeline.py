@@ -24,6 +24,7 @@ from .logs import log
 from .models import SecurityEvent
 from .store import Store
 from .team import AGENT_NAMES, build_team
+from .telemetry import trace_url
 from .tools import do_block
 
 JST = timezone(timedelta(hours=9))
@@ -38,6 +39,7 @@ class Pipeline:
 
     async def handle(self, event: SecurityEvent) -> str:
         s, store, t = self.settings, self.store, event.tenant_id
+        push_received_at = datetime.now(timezone.utc)
         if not await store.claim_event(t, event.event_id):
             return "duplicate-delivery"
         tenant = await store.get_tenant(t)
@@ -56,6 +58,7 @@ class Pipeline:
         inc = Incident(settings=s, store=store, event=event, incident_id=incident_id,
                        allowlist=list((tenant.get("settings") or {}).get("allowlist") or []),
                        previous_incidents=int(history.get("incidents", 0)))
+        inc.timings["pushReceivedAt"] = push_received_at
         inc.mark("aiStartedAt")
         await store.create_incident(t, incident_id, {
             "status": "analyzing",
@@ -88,7 +91,8 @@ class Pipeline:
             report = "### 報告書について\n報告書に表示できない内容が含まれていたため、自動で非表示にしました。対応内容はタイムラインをご確認ください。"
 
         resolved_at = inc.mark("resolvedAt")
-        status = "awaiting_approval" if inc.approvals else ("fallback" if failure else "resolved")
+        defended_by_ai = failure in (None, "report_unavailable")
+        status = "awaiting_approval" if inc.approvals else ("resolved" if defended_by_ai else "fallback")
         timings = {k: v for k, v in inc.timings.items()}
         action_at = inc.timings.get("actionAt")
         await store.update_incident(t, incident_id, {
@@ -101,9 +105,11 @@ class Pipeline:
             "approvals": [{"id": a["id"], "action": a["action"], "minutes": a["minutes"]} for a in inc.approvals],
             "report": {"markdown": report or ""},
             "failure": failure,
-            "usage": {"inputTokens": inc.usage.input_tokens, "outputTokens": inc.usage.output_tokens},
-            "estCostUsd": inc.usage.cost_usd(s),
+            "usage": {"inputTokens": inc.usage.input_tokens, "outputTokens": inc.usage.output_tokens,
+                      "byModel": inc.usage.by_model},
+            "estCostUsd": inc.usage.cost_usd(),
             "traceId": trace_id,
+            "traceUrl": trace_url(s.project_id, trace_id),
             "timings": {
                 **timings,
                 "receivedAt": event.received_at,
@@ -146,34 +152,64 @@ class Pipeline:
         runner = Runner(app_name="agentguard", agent=build_team(inc, access.client, self.gatekeeper),
                         session_service=InMemorySessionService(), auto_create_session=True)
         message = types.Content(role="user", parts=[types.Part(text=f"incident {inc.incident_id}")])
+        failure: str | None = None
         try:
             async with asyncio.timeout(s.run_timeout_sec):
                 async for ev in runner.run_async(user_id=t, session_id=inc.incident_id, new_message=message):
                     await self._record_event(inc, ev, report_parts)
         except TimeoutError:
-            await inc.step("system", "error", "AIの応答が時間内に返ってこなかったため、ルールに基づいて対処します。")
-            return None, "timeout"
+            failure = "timeout"
         except genai_errors.ClientError as exc:
             if access.mode == "byok" and exc.code in (400, 401, 403):
                 await store.mark_key_invalid(t)
                 await inc.step("system", "error", "APIキーが無効になっています。設定画面でキーを更新してください。")
                 return None, "key_rejected"
             log("ERROR", "model client error", incidentId=inc.incident_id, code=exc.code, error=str(exc)[:300])
-            await inc.step("system", "error", "AIの呼び出しでエラーが起きたため、ルールに基づいて対処します。")
-            return None, "model_error"
+            failure = "model_busy" if exc.code == 429 else "model_error"
         except Exception as exc:  # never leave an incident half-handled
             log("ERROR", "AI team failed", incidentId=inc.incident_id, error=repr(exc)[:500])
-            await inc.step("system", "error", "AIチームの処理中にエラーが起きたため、ルールに基づいて対処します。")
-            return None, "agent_error"
-        finally:
-            del access  # drop the per-incident client (and any BYOK key it holds)
+            failure = "agent_error"
 
-        report = "".join(report_parts).strip()
-        inc.mark("reportAt")
-        return report, None
+        if failure is None:
+            inc.mark("reportAt")
+            return "".join(report_parts).strip(), None
+
+        if self._defense_done(inc):
+            # The defense already happened; only the report is missing. Retry it with the fast model.
+            await inc.step("system", "warning", "防御は完了しています。報告書の作成で混雑エラーが起きたため、別のモデルで作り直します。")
+            report = await self._report_with_fast_model(inc, access)
+            inc.mark("reportAt")
+            return (report, None) if report else (None, "report_unavailable")
+
+        why = {"timeout": "AIの応答が時間内に返ってこなかった", "model_busy": "AIが混み合っていて応答できなかった"}.get(
+            failure, "AIの処理中にエラーが起きた")
+        await inc.step("system", "error", f"{why}ため、ルールに基づいて対処します。")
+        return None, failure
+
+    @staticmethod
+    def _defense_done(inc: Incident) -> bool:
+        if inc.verdict is None or inc.route is None:
+            return False
+        if inc.route == "DEFEND":
+            return any(a["type"] == "block_ip" for a in inc.actions)
+        return True  # WATCH / DISMISS are completed by code before the reporter runs
+
+    async def _report_with_fast_model(self, inc: Incident, access) -> str | None:
+        from .prompts import TSUTAE_INSTRUCTION, reporter_brief
+
+        try:
+            resp = await asyncio.wait_for(access.client.aio.models.generate_content(
+                model=self.settings.model_analyst, contents=reporter_brief(inc),
+                config=types.GenerateContentConfig(system_instruction=TSUTAE_INSTRUCTION),
+            ), timeout=30)
+            inc.usage.add(resp.usage_metadata, self.settings.model_analyst)
+            return (resp.text or "").strip() or None
+        except Exception as exc:
+            log("WARNING", "report retry failed", incidentId=inc.incident_id, error=repr(exc)[:300])
+            return None
 
     async def _record_event(self, inc: Incident, ev, report_parts: list[str]) -> None:
-        inc.usage.add(ev.usage_metadata)
+        inc.usage.add(ev.usage_metadata, ev.model_version)
         if ev.author not in AGENT_NAMES or not ev.content or not ev.content.parts:
             return
         for part in ev.content.parts:
@@ -205,11 +241,14 @@ class Pipeline:
     # ------------------------------------------------------------------ fail-safe
 
     async def _fallback(self, inc: Incident, failure: str) -> str:
+        if failure == "report_unavailable":
+            return self._template_report(inc)
         reason = {
             "quota_exceeded": "本日のAI解析の上限に達したため",
             "key_unavailable": "APIキーを使えなかったため",
             "key_rejected": "APIキーが無効だったため",
             "timeout": "AIの応答が遅れたため",
+            "model_busy": "AIが混み合っていたため",
         }.get(failure, "AIの処理でエラーが起きたため")
         if not inc.actions:
             await do_block(inc, self.settings.fallback_block_minutes,
@@ -224,4 +263,25 @@ class Pipeline:
             "### あなたへのおすすめ\n"
             + ("設定画面で Gemini の APIキーを確認してください。" if failure.startswith("key") else
                "しばらくしてから、もう一度ダッシュボードで状況を確認してください。")
+        )
+
+    @staticmethod
+    def _template_report(inc: Incident) -> str:
+        """Fact-only report used when the AI defended successfully but no model could write the report."""
+        from .prompts import actor_ja
+
+        actions = "、".join(
+            f"{a['ip']} を {a['minutes']}分ブロック（{actor_ja(a['by'])}）" if a["type"] == "block_ip"
+            else f"{a['ip']} を監視リストに追加（{actor_ja(a['by'])}）"
+            for a in inc.actions
+        ) or "追加の対処はありません"
+        pending = "サイトの一時停止の承認をお願いします（ダッシュボードの承認ボタン）。" if inc.approvals else \
+            "現在、あなたが対応する必要のある作業はありません。"
+        return (
+            "### 何が起きたか\n"
+            f"{inc.event.rule_label_ja} の疑いがあるアクセスを、ミハリ（WAF）が遮断しました。\n\n"
+            "### AIチームの対応\n"
+            f"シラベが解析し、マモルが対処しました：{actions}。（報告書は混雑のため簡易版です）\n\n"
+            "### あなたへのおすすめ\n"
+            f"{pending}"
         )
