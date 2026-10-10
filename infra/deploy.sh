@@ -34,13 +34,17 @@ case "${1:-}" in
     g run deploy agent --source "$ROOT/services/agent" "${common[@]}" \
       --service-account "$(sa sa-agent)" --no-allow-unauthenticated \
       --set-env-vars "PROJECT_ID=$PROJECT_ID,REGION=$REGION,ENABLE_CLOUD_TRACE=true,ARMOR_LOCATION=us" \
-      --cpu 1 --memory 1Gi --cpu-boost --min-instances "${AGENT_MIN_INSTANCES:-0}" --max-instances 3 \
+      --cpu 1 --memory 1Gi --cpu-boost --min-instances "${AGENT_MIN_INSTANCES:-1}" --max-instances 3 \
       --concurrency 10 --timeout 180
     ;;
   dashboard)
+    # Firebase web config (public identifiers) comes from apps/dashboard/.env.local, never from the repo.
+    env_file="$ROOT/apps/dashboard/.env.local"
+    [[ -f "$env_file" ]] || { echo "missing $env_file (copy .env.example)" >&2; exit 1; }
+    firebase_vars="$(grep -E '^FIREBASE_[A-Z_]+=' "$env_file" | tr -d '\r' | paste -sd, -)"
     g run deploy dashboard --source "$ROOT/apps/dashboard" "${common[@]}" \
       --service-account "$(sa sa-dashboard)" --allow-unauthenticated \
-      --set-env-vars "PROJECT_ID=$PROJECT_ID,TARGET_URL=$(url target),KMS_KEY=projects/$PROJECT_ID/locations/$REGION/keyRings/byok/cryptoKeys/tenant-gemini-key" \
+      --set-env-vars "PROJECT_ID=$PROJECT_ID,TARGET_URL=$(url target),KMS_KEY=projects/$PROJECT_ID/locations/$REGION/keyRings/byok/cryptoKeys/tenant-gemini-key,$firebase_vars" \
       --cpu 1 --memory 1Gi --min-instances 0 --max-instances 3 --concurrency 80 --timeout 60
     ;;
   *) echo "usage: $0 target | agent | dashboard" >&2; exit 2 ;;

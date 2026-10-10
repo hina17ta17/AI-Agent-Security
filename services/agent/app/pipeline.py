@@ -172,6 +172,7 @@ class Pipeline:
 
         if failure is None:
             inc.mark("reportAt")
+            await inc.step("tsutae", "message", "報告書をまとめました。「ツタエの報告書」をご覧ください。")
             return "".join(report_parts).strip(), None
 
         if self._defense_done(inc):
@@ -179,7 +180,10 @@ class Pipeline:
             await inc.step("system", "warning", "防御は完了しています。報告書の作成で混雑エラーが起きたため、別のモデルで作り直します。")
             report = await self._report_with_fast_model(inc, access)
             inc.mark("reportAt")
-            return (report, None) if report else (None, "report_unavailable")
+            if report:
+                await inc.step("tsutae", "message", "報告書をまとめました。「ツタエの報告書」をご覧ください。")
+                return report, None
+            return None, "report_unavailable"
 
         why = {"timeout": "AIの応答が時間内に返ってこなかった", "model_busy": "AIが混み合っていて応答できなかった"}.get(
             failure, "AIの処理中にエラーが起きた")

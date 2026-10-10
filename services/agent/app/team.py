@@ -75,7 +75,9 @@ def _planner(include_thoughts: bool) -> BuiltInPlanner:
 
 def build_team(inc: Incident, client: genai.Client, gatekeeper: Gatekeeper) -> Workflow:
     """One client per incident (tenant key or demo), one model per role."""
-    retry = types.HttpRetryOptions(attempts=2, initial_delay=1.0)
+    # Shared-capacity models answer 429 under load; back off and retry (408/429/5xx) before
+    # giving up, since the code fallback is less precise than the team's own judgement.
+    retry = types.HttpRetryOptions(attempts=4, initial_delay=0.8, max_delay=6.0, exp_base=2.0, jitter=0.5)
 
     def model(name: str) -> Gemini:
         return Gemini(model=name, client=client, retry_options=retry)

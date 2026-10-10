@@ -1,0 +1,97 @@
+"use client";
+
+import { ExternalLink, ShieldAlert, ShieldCheck, ShieldEllipsis, Wrench } from "lucide-react";
+import { motion } from "motion/react";
+
+import { remaining, seconds, toDate } from "@/lib/format";
+import { useNow } from "@/lib/hooks";
+import type { Incident, Tenant } from "@/lib/types";
+
+import { cx } from "./ui";
+
+type Mode = "safe" | "responding" | "awaiting" | "maintenance";
+
+const COPY: Record<Mode, { title: string; sub: string; ring: string; glow: string; text: string }> = {
+  safe: { title: "平常運転中", sub: "ミハリが静かに見張っています", ring: "bg-safe", glow: "from-safe/25", text: "text-emerald-600" },
+  responding: { title: "迎撃中！", sub: "AIチームが出動しています", ring: "bg-danger", glow: "from-danger/25", text: "text-rose-600" },
+  awaiting: { title: "あなたの判断を待っています", sub: "AIチームから承認の依頼が届いています", ring: "bg-warn", glow: "from-warn/30", text: "text-amber-600" },
+  maintenance: { title: "メンテナンス中", sub: "承認により、デモサイトを一時停止しています", ring: "bg-warn", glow: "from-warn/30", text: "text-amber-600" },
+};
+
+export function StatusHero({ tenant, incident, siteUrl }: { tenant: Tenant | null; incident: Incident | null; siteUrl: string }) {
+  const now = useNow(500);
+  const maintenanceUntil = toDate(tenant?.maintenanceUntil);
+  const inMaintenance = tenant?.siteMode === "maintenance" && (!maintenanceUntil || maintenanceUntil.getTime() > now);
+  const mode: Mode =
+    tenant?.status === "responding" ? "responding"
+    : tenant?.status === "awaiting_approval" ? "awaiting"
+    : inMaintenance ? "maintenance"
+    : "safe";
+  const c = COPY[mode];
+  const received = toDate(incident?.timings?.receivedAt);
+  const elapsed = mode === "responding" && received ? Math.max(0, (now - received.getTime()) / 1000) : null;
+  const Icon = mode === "responding" ? ShieldAlert : mode === "awaiting" ? ShieldEllipsis : mode === "maintenance" ? Wrench : ShieldCheck;
+
+  return (
+    <section className="relative overflow-hidden rounded-card border border-line bg-card shadow-soft">
+      <div className={cx("absolute inset-0 bg-linear-to-br to-transparent transition-colors duration-700", c.glow)} />
+      <div className="grid-dots absolute inset-0 opacity-60" />
+      <div className="relative flex flex-col items-center gap-6 p-6 sm:flex-row sm:p-8">
+        <div className="relative grid size-36 shrink-0 place-items-center">
+          <span className={cx("absolute inset-0 rounded-full opacity-20", c.ring, mode === "safe" && "animate-breathe")} />
+          {mode === "responding" && (
+            <>
+              <span className={cx("absolute inset-0 rounded-full", c.ring, "animate-ripple")} />
+              <span className={cx("absolute inset-0 rounded-full", c.ring, "animate-ripple [animation-delay:0.8s]")} />
+            </>
+          )}
+          <span className="absolute inset-4 rounded-full bg-white shadow-soft" />
+          {/* Remount with a pop-in on every change; no exit phase, so the icon can never get stuck hidden. */}
+          <motion.span
+            key={mode}
+            initial={{ scale: 0.6, opacity: 0, rotate: -10 }}
+            animate={{ scale: 1, opacity: 1, rotate: 0 }}
+            transition={{ type: "spring", stiffness: 260, damping: 18 }}
+            className={cx("relative", c.text)}
+          >
+            <Icon size={58} strokeWidth={1.8} />
+          </motion.span>
+        </div>
+
+        <div className="min-w-0 flex-1 text-center sm:text-left">
+          <p className="text-xs font-bold tracking-widest text-muted">STATUS</p>
+          <motion.h1
+            key={c.title}
+            initial={{ y: 8, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className={cx("mt-1 font-display text-3xl font-bold sm:text-4xl", c.text)}
+          >
+            {c.title}
+          </motion.h1>
+          <p className="mt-1 text-sm text-muted">{c.sub}</p>
+
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+            {elapsed !== null && (
+              <span className="rounded-full bg-danger/10 px-3 py-1 font-mono text-sm font-bold text-rose-600 tabular-nums">
+                経過 {seconds(elapsed)} 秒
+              </span>
+            )}
+            {mode === "maintenance" && (
+              <span className="rounded-full bg-warn/15 px-3 py-1 text-sm font-semibold text-amber-700">
+                解除まで {remaining(maintenanceUntil, now)}
+              </span>
+            )}
+            <a
+              href={siteUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold text-brand hover:bg-brand/5"
+            >
+              守っているデモサイトを開く <ExternalLink size={14} />
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}

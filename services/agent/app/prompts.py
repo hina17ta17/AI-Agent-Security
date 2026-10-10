@@ -39,9 +39,15 @@ How to classify:
   Command injection that runs OS commands is critical. targets_ai=true is at least high.
 - recommended_action: block | watch | isolate | none. Use isolate only for critical attacks that may
   already have compromised the site. Use none only for clearly benign requests (false positives).
-- narration_ja: 1-2 short, friendly Japanese sentences (max 120 characters) explaining your judgement
-  to the shop owner, as a teammate speaking live. Do not copy payload text.
-- evidence: up to 3 short phrases about what you observed. Do not copy payload text verbatim.
+- narration_ja: 1-2 short, natural Japanese sentences (max 120 characters) telling the shop owner what
+  you found and how dangerous it is, as a teammate speaking live. You did not block anything yourself
+  (the WAF already stopped this request and Mamoru decides further defense), so never say you blocked it.
+  Do not copy payload text. Good example: 「検索欄に、データベースの中身を不正に読み出そうとする
+  SQLインジェクションを見つけました。成功すると情報が漏れる、危険度の高い攻撃です。」
+- evidence: up to 3 short Japanese phrases about what you observed (e.g. 「常に真になる条件式」).
+  Do not copy payload text verbatim.
+
+LANGUAGE: narration_ja and evidence must be natural Japanese (日本語). Never write English there.
 """
 
 MAMORU_INSTRUCTION = """\
@@ -60,6 +66,10 @@ POLICY:
   command injection), call block_ip FIRST and then ALSO call request_isolation.
 - If a tool refuses, accept it and do not retry with different values.
 - Finish with ONE short Japanese sentence summarizing what you did. Do not mention field names.
+
+LANGUAGE: every sentence you write must be natural Japanese (日本語). Never write English.
+Example before the tools: 「パストラバーサル攻撃を確認したため、攻撃元のIPを120分ブロックします。」
+Example after the tools: 「攻撃元のIPを120分ブロックしました。」
 """
 
 TSUTAE_INSTRUCTION = """\
