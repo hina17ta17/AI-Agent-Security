@@ -58,8 +58,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AgentGuard demo shop", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
-@app.get("/healthz")
-async def healthz():
+@app.get("/health")  # Cloud Run reserves paths ending in "z" (e.g. /healthz)
+async def health():
     return {"ok": True}
 
 

@@ -35,9 +35,12 @@ setup_firestore() {
       --type=firestore-native --project="$PROJECT_ID"
   fi
 
-  step "Firestore TTL: blocklist entries expire automatically"
-  g firestore fields ttls update expiresAt --collection-group=blocklist \
-    --enable-ttl --async --project="$PROJECT_ID" >/dev/null || echo "(TTL update already in progress or set)"
+  step "Firestore TTL: short-lived documents expire automatically"
+  for group in blocklist watchlist eventLog dedupe; do
+    g firestore fields ttls update expiresAt --collection-group="$group" \
+      --enable-ttl --async --project="$PROJECT_ID" >/dev/null || echo "($group: TTL update already in progress or set)"
+    echo "ttl: $group.expiresAt"
+  done
 }
 
 # ------------------------------------------------------------------ Security rules

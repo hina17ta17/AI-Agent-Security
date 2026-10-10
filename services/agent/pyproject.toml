@@ -1,0 +1,28 @@
+[project]
+name = "agentguard-agent"
+version = "0.1.0"
+description = "AgentGuard AI agent team: analyzes WAF events and defends autonomously (ADK + Gemini)."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "google-adk==2.11.0",
+    "google-genai==2.29.0",
+    "google-cloud-firestore==2.34.1",
+    "google-cloud-kms==3.18.0",
+    "google-cloud-modelarmor==0.7.2",
+    # fastapi / uvicorn / OpenTelemetry versions follow what google-adk supports (pinned in uv.lock).
+    "fastapi",
+    "uvicorn",
+    "opentelemetry-exporter-gcp-trace",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "httpx==0.28.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
