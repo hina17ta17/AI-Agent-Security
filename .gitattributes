@@ -1,0 +1,7 @@
+# Keep LF everywhere: scripts and sources run in Linux containers on Cloud Run.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
