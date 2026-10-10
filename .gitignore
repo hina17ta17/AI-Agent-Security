@@ -1,0 +1,42 @@
+# --- secrets: never commit ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*-key.json
+*credentials*.json
+service-account*.json
+.gcp-keys/
+# temporary: Firebase web config pasted by hand; moves to apps/dashboard/.env.local
+/firebase.js
+/package.json
+/package-lock.json
+# personal setup checklist (contains project-specific values)
+docs/setup-guide.md
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- node ---
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+
+# --- firebase ---
+.firebase/
+firebase-debug.log
+firestore-debug.log
+
+# --- os / editor ---
+.DS_Store
+Thumbs.db
+.idea/
