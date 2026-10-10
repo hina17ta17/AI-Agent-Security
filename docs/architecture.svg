@@ -1,0 +1,191 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" width="1600" height="1000" font-family="'Noto Sans JP','Hiragino Sans','Yu Gothic UI','Meiryo',sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4f46e5"/>
+    </marker>
+    <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f43f5e"/>
+    </marker>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4f46e5"/><stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="1000" fill="#f6f8fc"/>
+  <text x="40" y="58" font-size="30" font-weight="700" fill="#0f172a">AgentGuard アーキテクチャ</text>
+  <text x="40" y="88" font-size="15" fill="#64748b">ふだんは軽い WAF が見張り、攻撃を検知した瞬間だけ AI チームが Cloud Run 上で出動する、イベント駆動型の防衛システム</text>
+  <rect x="40" y="98" width="200" height="4" rx="2" fill="url(#brand)"/>
+
+  <!-- ===== Row 1 ===== -->
+  <g filter="url(#shadow)">
+    <rect x="40" y="130" width="260" height="210" rx="18" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="360" y="130" width="340" height="210" rx="18" fill="#fff" stroke="#c7d2fe" stroke-width="2"/>
+    <rect x="760" y="130" width="340" height="210" rx="18" fill="#fff" stroke="#c7d2fe" stroke-width="2"/>
+    <rect x="1160" y="130" width="400" height="100" rx="18" fill="#fff" stroke="#e2e8f0"/>
+  </g>
+  <text x="62" y="168" font-size="18" font-weight="700" fill="#0f172a">利用者のブラウザ</text>
+  <text x="62" y="200" font-size="14" fill="#334155">ダッシュボード</text>
+  <text x="62" y="222" font-size="13" fill="#64748b">実況・承認・設定・攻撃シミュレーター</text>
+  <text x="62" y="256" font-size="14" fill="#334155">デモサイト「ひだまり雑貨店」</text>
+  <text x="62" y="278" font-size="13" fill="#64748b">利用者ごとに専用のサイト</text>
+
+  <text x="382" y="166" font-size="13" font-weight="700" fill="#4f46e5">Cloud Run</text>
+  <text x="382" y="190" font-size="18" font-weight="700" fill="#0f172a">dashboard（Next.js 16）</text>
+  <text x="382" y="212" font-size="12" fill="#64748b" font-family="monospace">sa-dashboard</text>
+  <text x="382" y="240" font-size="13" fill="#334155">・ログインした本人のデータだけを操作</text>
+  <text x="382" y="262" font-size="13" fill="#334155">・APIキーを検証して KMS で暗号化</text>
+  <text x="382" y="284" font-size="13" fill="#334155">・攻撃シミュレーター（自分のサイトのみ）</text>
+  <text x="382" y="306" font-size="13" fill="#334155">・人の承認・ブロック解除（人だけ）</text>
+
+  <text x="782" y="166" font-size="13" font-weight="700" fill="#4f46e5">Cloud Run</text>
+  <text x="782" y="190" font-size="18" font-weight="700" fill="#0f172a">target ＋ ミハリ（WAF）</text>
+  <text x="782" y="212" font-size="12" fill="#64748b" font-family="monospace">sa-target</text>
+  <text x="782" y="240" font-size="13" fill="#334155">・ルール判定 約0.1ms で即 403</text>
+  <text x="782" y="262" font-size="13" fill="#334155">・ブロック中IP・メンテナンスを毎回確認</text>
+  <text x="782" y="284" font-size="13" fill="#334155">・擬似IPはダッシュボードの署名付きのみ</text>
+  <text x="782" y="306" font-size="13" fill="#334155">・検知したら Pub/Sub へ通知</text>
+
+  <text x="1182" y="166" font-size="18" font-weight="700" fill="#0f172a">Pub/Sub：security-events</text>
+  <text x="1182" y="196" font-size="13" fill="#64748b">push（OIDC 認証）・失敗時は DLQ へ退避</text>
+
+  <rect x="1160" y="250" width="400" height="90" rx="18" fill="#ecfdf5" stroke="#a7f3d0"/>
+  <text x="1182" y="284" font-size="15" font-weight="700" fill="#047857">ふだんは AI 呼び出し 0 回</text>
+  <text x="1182" y="310" font-size="13" fill="#047857">攻撃を検知したときだけ AI チームを起動</text>
+
+  <!-- Row 1 arrows -->
+  <line x1="300" y1="185" x2="356" y2="185" stroke="#4f46e5" stroke-width="2.5" marker-end="url(#arrB)"/>
+  <line x1="700" y1="200" x2="756" y2="200" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrR)"/>
+  <text x="730" y="120" font-size="12" fill="#f43f5e" text-anchor="middle">攻撃シミュレーション（IDトークン付き）</text>
+  <line x1="1100" y1="180" x2="1156" y2="180" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrR)"/>
+  <text x="1130" y="120" font-size="12" fill="#f43f5e" text-anchor="middle">検知イベント</text>
+
+  <!-- ===== Row 2 ===== -->
+  <g filter="url(#shadow)">
+    <rect x="40" y="400" width="260" height="90" rx="18" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="360" y="400" width="340" height="160" rx="18" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="360" y="590" width="340" height="110" rx="18" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="760" y="400" width="800" height="340" rx="22" fill="#fff" stroke="url(#brand)" stroke-width="3"/>
+  </g>
+  <text x="62" y="436" font-size="17" font-weight="700" fill="#0f172a">Firebase Authentication</text>
+  <text x="62" y="464" font-size="13" fill="#64748b">Google / メールでログイン</text>
+
+  <text x="382" y="436" font-size="18" font-weight="700" fill="#0f172a">Firestore</text>
+  <text x="382" y="464" font-size="13" fill="#334155">インシデント・実況・ブロックリスト</text>
+  <text x="382" y="486" font-size="13" fill="#334155">承認・監査ログ・利用回数</text>
+  <text x="382" y="516" font-size="12" fill="#64748b">ルール：本人は自分のデータを「読むだけ」</text>
+  <text x="382" y="536" font-size="12" fill="#64748b">書き込みはすべてサーバー経由</text>
+
+  <text x="382" y="626" font-size="18" font-weight="700" fill="#0f172a">Cloud KMS</text>
+  <text x="382" y="652" font-size="13" fill="#334155">利用者の Gemini APIキーを暗号化</text>
+  <text x="382" y="676" font-size="12" fill="#64748b" font-family="monospace">AAD = tenant:{uid}（他人に流用不可）</text>
+
+  <!-- Agent -->
+  <text x="790" y="438" font-size="13" font-weight="700" fill="#4f46e5">Cloud Run（非公開・Pub/Sub からのみ起動）</text>
+  <text x="790" y="464" font-size="20" font-weight="700" fill="#0f172a">agent：AI チーム（ADK 2.x Workflow）</text>
+  <text x="1530" y="464" font-size="12" fill="#64748b" text-anchor="end" font-family="monospace">sa-agent</text>
+
+  <!-- Workflow nodes -->
+  <g font-size="12">
+    <rect x="790" y="482" width="128" height="112" rx="14" fill="#ecfeff" stroke="#67e8f9"/>
+    <text x="854" y="510" text-anchor="middle" font-size="16" font-weight="700" fill="#0e7490">番人</text>
+    <text x="854" y="532" text-anchor="middle" fill="#155e75">コード</text>
+    <text x="854" y="552" text-anchor="middle" fill="#155e75">Model Armor で</text>
+    <text x="854" y="570" text-anchor="middle" fill="#155e75">攻撃文を検査</text>
+
+    <rect x="943" y="482" width="128" height="112" rx="14" fill="#fffbeb" stroke="#fcd34d"/>
+    <text x="1007" y="510" text-anchor="middle" font-size="16" font-weight="700" fill="#b45309">シラベ</text>
+    <text x="1007" y="532" text-anchor="middle" fill="#92400e">LLM・解析</text>
+    <text x="1007" y="552" text-anchor="middle" fill="#92400e">種類・重大度・</text>
+    <text x="1007" y="570" text-anchor="middle" fill="#92400e">確信度を判定</text>
+    <text x="1007" y="588" text-anchor="middle" font-size="10" fill="#b45309" font-family="monospace">3.5-flash-lite</text>
+
+    <rect x="1096" y="482" width="128" height="112" rx="14" fill="#f1f5f9" stroke="#cbd5e1"/>
+    <text x="1160" y="510" text-anchor="middle" font-size="16" font-weight="700" fill="#334155">分岐</text>
+    <text x="1160" y="532" text-anchor="middle" fill="#475569">コード</text>
+    <text x="1160" y="552" text-anchor="middle" fill="#475569">防御 / 監視 /</text>
+    <text x="1160" y="570" text-anchor="middle" fill="#475569">見送り</text>
+
+    <rect x="1249" y="482" width="128" height="112" rx="14" fill="#ecfdf5" stroke="#6ee7b7"/>
+    <text x="1313" y="510" text-anchor="middle" font-size="16" font-weight="700" fill="#047857">マモル</text>
+    <text x="1313" y="532" text-anchor="middle" fill="#065f46">LLM・防御</text>
+    <text x="1313" y="552" text-anchor="middle" fill="#065f46">ブロック・監視</text>
+    <text x="1313" y="570" text-anchor="middle" fill="#065f46">・隔離の依頼</text>
+    <text x="1313" y="588" text-anchor="middle" font-size="10" fill="#047857" font-family="monospace">3.5-flash-lite</text>
+
+    <rect x="1402" y="482" width="128" height="112" rx="14" fill="#fdf2f8" stroke="#f9a8d4"/>
+    <text x="1466" y="510" text-anchor="middle" font-size="16" font-weight="700" fill="#be185d">ツタエ</text>
+    <text x="1466" y="532" text-anchor="middle" fill="#9d174d">LLM・報告</text>
+    <text x="1466" y="552" text-anchor="middle" fill="#9d174d">やさしい日本語</text>
+    <text x="1466" y="570" text-anchor="middle" fill="#9d174d">の報告書</text>
+    <text x="1466" y="588" text-anchor="middle" font-size="10" fill="#be185d" font-family="monospace">3.8-flash</text>
+  </g>
+  <g stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)">
+    <line x1="918" y1="538" x2="940" y2="538"/>
+    <line x1="1071" y1="538" x2="1093" y2="538"/>
+    <line x1="1224" y1="538" x2="1246" y2="538"/>
+    <line x1="1377" y1="538" x2="1399" y2="538"/>
+  </g>
+
+  <rect x="790" y="614" width="360" height="106" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="808" y="642" font-size="14" font-weight="700" fill="#0f172a">コードで決める分岐（AIに任せない）</text>
+  <text x="808" y="666" font-size="12.5" fill="#334155">・AIをだます攻撃は必ず「防御」へ</text>
+  <text x="808" y="688" font-size="12.5" fill="#334155">・攻撃文を見られるのはシラベだけ（検査後）</text>
+  <text x="808" y="708" font-size="12.5" fill="#334155">・マモル・ツタエにはコードが作った要約のみ</text>
+
+  <rect x="1170" y="614" width="360" height="106" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="1188" y="642" font-size="14" font-weight="700" fill="#0f172a">コードで強制する安全ルール</text>
+  <text x="1188" y="666" font-size="12.5" fill="#334155">・対象IPは攻撃元のみ・時間に上限</text>
+  <text x="1188" y="688" font-size="12.5" fill="#334155">・「解除」の道具はない（守りを固めるだけ）</text>
+  <text x="1188" y="708" font-size="12.5" fill="#334155">・サイト隔離は人の承認が必要</text>
+
+  <!-- Row 2 arrows -->
+  <line x1="170" y1="340" x2="170" y2="396" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="182" y="374" font-size="12" fill="#64748b">ログイン</text>
+  <line x1="1360" y1="230" x2="1360" y2="246" stroke="#f43f5e" stroke-width="2.5"/>
+  <line x1="1360" y1="340" x2="1360" y2="396" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrR)"/>
+  <text x="1372" y="374" font-size="12" fill="#f43f5e">push で起動</text>
+  <line x1="760" y1="480" x2="704" y2="480" stroke="#4f46e5" stroke-width="2.5" marker-end="url(#arrB)"/>
+  <text x="732" y="472" font-size="11" fill="#4f46e5" text-anchor="middle">実況・結果</text>
+  <line x1="470" y1="400" x2="470" y2="344" stroke="#4f46e5" stroke-width="2.5" marker-end="url(#arrB)"/>
+  <text x="482" y="378" font-size="12" fill="#4f46e5">リアルタイム表示</text>
+  <path d="M930 340 V372 H640 V396" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="790" y="366" font-size="12" fill="#64748b" text-anchor="middle">ブロック・メンテナンスを確認</text>
+  <path d="M360 300 H332 V645 H356" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="326" y="560" font-size="12" fill="#64748b" text-anchor="end">暗号化</text>
+  <text x="326" y="576" font-size="12" fill="#64748b" text-anchor="end">のみ</text>
+  <line x1="760" y1="645" x2="704" y2="645" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="732" y="636" font-size="11" fill="#64748b" text-anchor="middle">復号のみ</text>
+
+  <!-- ===== Row 3 ===== -->
+  <g filter="url(#shadow)">
+    <rect x="40" y="800" width="660" height="110" rx="18" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="760" y="800" width="380" height="110" rx="18" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="1180" y="800" width="380" height="110" rx="18" fill="#fff" stroke="#e2e8f0"/>
+  </g>
+  <text x="62" y="836" font-size="18" font-weight="700" fill="#0f172a">Cloud Trace / Cloud Logging</text>
+  <text x="62" y="864" font-size="13" fill="#334155">インシデントごとのトレース（ADK の各エージェント・ツール・モデル呼び出し）</text>
+  <text x="62" y="886" font-size="13" fill="#334155">秘密情報を出さない構造化ログ ・ 1件ごとのトークン数とコスト</text>
+
+  <text x="782" y="836" font-size="18" font-weight="700" fill="#0f172a">Gemini</text>
+  <text x="782" y="864" font-size="13" fill="#334155">デモ：Agent Platform（サービスアカウント認証）</text>
+  <text x="782" y="886" font-size="13" fill="#334155">BYOK：利用者の Gemini APIキー（実行ごとに専用）</text>
+
+  <text x="1202" y="836" font-size="18" font-weight="700" fill="#0f172a">Model Armor（us）</text>
+  <text x="1202" y="864" font-size="13" fill="#334155">入力：AI をだます文章・危険な URL の検査</text>
+  <text x="1202" y="886" font-size="13" fill="#334155">出力：報告書の機密情報・有害表現の検査</text>
+
+  <!-- Row 3 arrows -->
+  <path d="M820 740 V770 H500 V796" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="660" y="764" font-size="12" fill="#64748b" text-anchor="middle">トレース・ログ</text>
+  <line x1="1007" y1="740" x2="1007" y2="796" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="1370" y1="740" x2="1370" y2="796" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+
+  <text x="40" y="958" font-size="13" fill="#64748b">各サービスは専用のサービスアカウント（最小権限）で動作。開発・運用用のアカウントは KMS・APIキー・請求情報に触れられない。</text>
+  <text x="40" y="980" font-size="13" fill="#64748b">リージョン：asia-northeast1（Gemini は global、Model Armor は多言語検出に対応した us）</text>
+</svg>

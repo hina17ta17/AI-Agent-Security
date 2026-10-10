@@ -33,7 +33,7 @@ case "${1:-}" in
     # Private: only the Pub/Sub push identity can invoke it (see setup-cloud.sh push).
     g run deploy agent --source "$ROOT/services/agent" "${common[@]}" \
       --service-account "$(sa sa-agent)" --no-allow-unauthenticated \
-      --set-env-vars "PROJECT_ID=$PROJECT_ID,REGION=$REGION,ENABLE_CLOUD_TRACE=true,ARMOR_LOCATION=us" \
+      --set-env-vars "PROJECT_ID=$PROJECT_ID,REGION=$REGION,ENABLE_CLOUD_TRACE=true,ARMOR_LOCATION=us,DEMO_DAILY_LIMIT_GLOBAL=${DEMO_DAILY_LIMIT_GLOBAL:-300}" \
       --cpu 1 --memory 1Gi --cpu-boost --min-instances "${AGENT_MIN_INSTANCES:-1}" --max-instances 3 \
       --concurrency 10 --timeout 180
     ;;

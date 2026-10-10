@@ -107,7 +107,7 @@ function ModeCard() {
   const tenant = useTenant().data;
   const act = useAction();
   const options = [
-    { mode: "demo" as const, title: "デモモード", desc: "AgentGuard の Gemini を使います（1日10回まで）。審査やお試し向け。" },
+    { mode: "demo" as const, title: "デモモード", desc: "AgentGuard の Gemini を使います（1日の回数に上限あり）。審査やお試し向け。" },
     { mode: "byok" as const, title: "あなたのAPIキー", desc: "登録したキーで動きます（1日200回まで）。料金はあなたの Google アカウントに請求されます。" },
   ];
   return (

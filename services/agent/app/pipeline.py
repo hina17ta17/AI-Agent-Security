@@ -133,6 +133,10 @@ class Pipeline:
         s, store, t = self.settings, self.store, inc.tenant_id
         wants_byok = tenant.get("aiMode") == "byok"
         limit = s.byok_daily_limit_per_tenant if wants_byok else s.demo_daily_limit_per_tenant
+        # Operator-set override (e.g. the shared judge account). Clients cannot write tenant docs.
+        override = (tenant.get("quotaOverride") or {}).get("byok" if wants_byok else "demo")
+        if isinstance(override, int) and 0 < override <= 500:
+            limit = override
         allowed, used, _ = await store.consume_quota(t, "byok" if wants_byok else "demo", limit,
                                                      None if wants_byok else s.demo_daily_limit_global)
         if not allowed:
