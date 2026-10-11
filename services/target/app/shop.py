@@ -32,7 +32,7 @@ background:#EEF2FF;border-radius:999px;padding:4px 10px}
 background:linear-gradient(120deg,var(--brand),var(--brand2))}
 .hero h1{margin:0 0 6px;font-size:26px}form.search{display:flex;gap:8px;margin-top:14px}
 input,textarea{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;font:inherit}
-button{padding:12px 18px;border:0;border-radius:12px;background:var(--ink);color:#fff;font:inherit;cursor:pointer}
+button{padding:12px 18px;border:0;border-radius:12px;background:var(--ink);color:#fff;font:inherit;cursor:pointer;white-space:nowrap;flex-shrink:0}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px}
 .emoji{font-size:38px}.price{font-weight:700}.muted{color:var(--muted);font-size:14px}

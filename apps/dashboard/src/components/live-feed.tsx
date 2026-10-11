@@ -3,7 +3,6 @@
 import { Brain, Cog, Radio, Wrench } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { useEffect, useRef } from "react";
 
 import { ATTACK_LABEL, SEVERITY, timeJst } from "@/lib/format";
 import type { Incident, Step, Verdict } from "@/lib/types";
@@ -102,11 +101,7 @@ export function LiveFeed({ incident, steps, live, title, showLink = true }: {
   title?: string;
   showLink?: boolean;
 }) {
-  const end = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (live) end.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [steps.length, live]);
-
+  // No automatic scrolling: the page stays where the viewer is, and the feed simply grows.
   return (
     <Card className="flex min-h-105 flex-col">
       <CardHeader
@@ -118,7 +113,7 @@ export function LiveFeed({ incident, steps, live, title, showLink = true }: {
       {!incident ? (
         <Empty>まだ攻撃はありません。右の「攻撃シミュレーター」で試してみましょう。</Empty>
       ) : (
-        <div className="mt-3 flex-1 space-y-3 overflow-y-auto px-5 pb-5" style={{ maxHeight: 560 }}>
+        <div className="mt-3 flex-1 space-y-3 px-5 pb-5">
           <AnimatePresence initial={false}>
             {steps.map((s) => (
               <motion.div key={s.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
@@ -136,7 +131,6 @@ export function LiveFeed({ incident, steps, live, title, showLink = true }: {
               チームが対応中…
             </div>
           )}
-          <div ref={end} />
         </div>
       )}
     </Card>
