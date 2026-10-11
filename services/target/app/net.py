@@ -1,9 +1,8 @@
-"""Client IP resolution, including the dashboard's simulated attacker IPs.
+"""IP helpers and the dashboard's service-account token check.
 
-The attack simulator in the dashboard sends attacks from *documentation* addresses
-(RFC 5737) so no real person can ever be blocked by a demo. That simulated IP is
-trusted only when the request carries a Google-signed ID token of the dashboard's
-service account; anyone else's header is ignored.
+The attack simulator in the dashboard reports synthetic events from *documentation* addresses
+(RFC 5737) so no real person can ever be blocked by a demo. Such reports, and AgentGuard's own
+traffic, are trusted only with a Google-signed ID token of the dashboard's service account.
 """
 
 from __future__ import annotations
@@ -17,8 +16,6 @@ import google.auth.transport.requests
 import requests
 from google.oauth2 import id_token
 
-SIM_TOKEN_HEADER = "x-agentguard-sim-token"
-SIM_IP_HEADER = "x-agentguard-sim-ip"
 
 DOCUMENTATION_NETS = tuple(
     ipaddress.ip_network(n) for n in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")
@@ -39,13 +36,6 @@ def is_documentation_ip(ip: str) -> bool:
     return any(addr in net for net in DOCUMENTATION_NETS)
 
 
-def forwarded_client_ip(x_forwarded_for: str | None, peer: str | None) -> str:
-    """Cloud Run puts the original client first in X-Forwarded-For."""
-    if x_forwarded_for:
-        first = parse_ip(x_forwarded_for.split(",")[0])
-        if first:
-            return first
-    return parse_ip(peer) or "0.0.0.0"
 
 
 class SimTokenVerifier:

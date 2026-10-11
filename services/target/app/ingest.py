@@ -4,6 +4,8 @@ receives descriptions of requests the site already handled and returns an allow/
 
 Auth is one of:
   - Ingest key (real site): Authorization: Bearer <key>, mapped to a tenant by its hash.
+  - Dashboard service-account ID token + agentguardSelf=true (AgentGuard protects itself): the
+    dashboard's real visitors, recorded under the tenant fixed by SELF_TENANT_ID.
   - Dashboard service-account ID token (the simulator): an explicit tenantId, simulated=true, and a
     documentation source IP (RFC 5737) only -- the same trust model as the demo attack simulator.
 """
@@ -30,6 +32,8 @@ class IngestRequest(BaseModel):
     # Only honored on the simulator (service-account) path:
     tenantId: str | None = None
     simulated: bool = False
+    # AgentGuard's own dashboard reporting its traffic (service-account path; tenant fixed by config).
+    agentguardSelf: bool = False
 
 
 def hash_key(key: str) -> str:

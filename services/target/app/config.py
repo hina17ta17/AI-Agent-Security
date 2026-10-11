@@ -16,6 +16,9 @@ class Settings:
     dashboard_sa: str  # only this identity may attach a simulated source IP
     sim_audience: str | None  # expected ID-token audience; defaults to https://<Host>
     max_body_bytes: int = 64 * 1024
+    # The tenant that receives AgentGuard's own traffic (the dashboard protects itself). Fixed here,
+    # never taken from a request; empty disables self-protection.
+    self_tenant_id: str = ""
 
 
 @lru_cache
@@ -30,4 +33,5 @@ def get_settings() -> Settings:
         events_topic=os.environ.get("EVENTS_TOPIC", "security-events"),
         dashboard_sa=os.environ.get("DASHBOARD_SA", f"sa-dashboard@{project}.iam.gserviceaccount.com"),
         sim_audience=os.environ.get("SIM_AUDIENCE") or None,
+        self_tenant_id=os.environ.get("SELF_TENANT_ID", ""),
     )

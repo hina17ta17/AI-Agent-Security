@@ -16,6 +16,8 @@ PROJECT_ID="${PROJECT_ID:-$(g config get-value project)}"
 REGION="${REGION:-asia-northeast1}"
 NUMBER="$(g projects describe "$PROJECT_ID" --format='value(projectNumber)')"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# AgentGuard protects itself (dashboard -> /ingest); the receiving tenant is fixed here.
+SELF_TENANT_ID="${SELF_TENANT_ID:-$(sed -n 's/^SELF_TENANT_ID=//p' "$ROOT/infra/self-tenant.env" 2>/dev/null | tr -d '\r')}"
 url() { echo "https://$1-$NUMBER.$REGION.run.app"; }
 sa() { echo "$1@$PROJECT_ID.iam.gserviceaccount.com"; }
 
@@ -26,7 +28,7 @@ case "${1:-}" in
   target)
     g run deploy target --source "$ROOT/services/target" "${common[@]}" \
       --service-account "$(sa sa-target)" --allow-unauthenticated \
-      --set-env-vars "PROJECT_ID=$PROJECT_ID,EVENTS_TOPIC=security-events,SIM_AUDIENCE=$(url target)" \
+      --set-env-vars "PROJECT_ID=$PROJECT_ID,EVENTS_TOPIC=security-events,SIM_AUDIENCE=$(url target),SELF_TENANT_ID=$SELF_TENANT_ID" \
       --cpu 1 --memory 512Mi --min-instances "${TARGET_MIN_INSTANCES:-1}" --max-instances 10 --concurrency 80 --timeout 30
     ;;
   agent)
@@ -46,7 +48,7 @@ case "${1:-}" in
     firebase_vars="$(grep -E '^FIREBASE_[A-Z_]+=' "$env_file" | tr -d '\r' | paste -sd, -)"
     g run deploy dashboard --source "$ROOT/apps/dashboard" "${common[@]}" \
       --service-account "$(sa sa-dashboard)" --allow-unauthenticated \
-      --set-env-vars "PROJECT_ID=$PROJECT_ID,TARGET_URL=$(url target),KMS_KEY=projects/$PROJECT_ID/locations/$REGION/keyRings/byok/cryptoKeys/tenant-gemini-key,$firebase_vars" \
+      --set-env-vars "PROJECT_ID=$PROJECT_ID,TARGET_URL=$(url target),KMS_KEY=projects/$PROJECT_ID/locations/$REGION/keyRings/byok/cryptoKeys/tenant-gemini-key,SELF_PROTECT=${SELF_PROTECT:-on},$firebase_vars" \
       --cpu 1 --memory 1Gi --min-instances "${DASHBOARD_MIN_INSTANCES:-1}" --max-instances 3 --concurrency 80 --timeout 60
     ;;
   *) echo "usage: $0 target | agent | dashboard" >&2; exit 2 ;;

@@ -144,3 +144,43 @@ def test_blocked_ip_is_rejected_without_a_new_event(env):
     r = client.post("/ingest", json={"path": "/", "ip": "198.51.100.9"}, headers=key_auth())
     assert r.json()["decision"] == "block"
     assert store.hits == ["198.51.100.9"] and publisher.events == []
+
+
+# ---------------------------------------------------------------------------- AgentGuard protects itself
+
+def with_self_tenant(tenant_id):
+    main.app.state.settings = Settings(
+        project_id="test", events_topic="t", dashboard_sa="sa-dashboard@test.iam.gserviceaccount.com",
+        sim_audience="https://target.test", self_tenant_id=tenant_id,
+    )
+
+
+def test_dashboard_reports_its_own_visitors_to_the_self_tenant(env):
+    client, _, publisher = env
+    with_self_tenant("self-tenant")
+    r = client.post("/ingest",
+                    json={"method": "GET", "path": "/app", "query": {"q": "1' OR '1'='1"}, "ip": "198.51.100.9",
+                          "agentguardSelf": True, "tenantId": "someone-else"},
+                    headers={"authorization": "Bearer good-sa-token"})
+    assert r.json()["decision"] == "block"
+    [event] = publisher.events
+    # The tenant is fixed by configuration (a request cannot pick another tenant), and the visitor's
+    # real address is kept (this is real traffic, not the simulator).
+    assert event["tenantId"] == "self-tenant"
+    assert event["simulated"] is False and event["srcIp"] == "198.51.100.9"
+
+
+def test_self_protection_needs_the_dashboard_token(env):
+    client, _, _ = env
+    with_self_tenant("self-tenant")
+    r = client.post("/ingest", json={"path": "/", "agentguardSelf": True},
+                    headers={"authorization": "Bearer forged"})
+    assert r.status_code == 401
+
+
+def test_self_protection_is_off_without_a_configured_tenant(env):
+    client, _, _ = env
+    with_self_tenant("")
+    r = client.post("/ingest", json={"path": "/", "agentguardSelf": True},
+                    headers={"authorization": "Bearer good-sa-token"})
+    assert r.status_code == 401

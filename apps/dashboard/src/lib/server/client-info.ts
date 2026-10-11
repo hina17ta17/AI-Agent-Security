@@ -13,9 +13,10 @@ export type ClientInfo = {
   deviceHash: string; // sha256(uid + device), for "new device" matching only
 };
 
-function firstIp(xff: string | null): string | null {
-  const first = (xff ?? "").split(",")[0]?.trim();
-  return first || null;
+/** Cloud Run appends the real client last; earlier entries were written by the client and can be faked. */
+function clientIp(xff: string | null): string | null {
+  const last = (xff ?? "").split(",").pop()?.trim();
+  return last || null;
 }
 
 /** Drop the host part so a stored "location" can never identify one machine or person. */
@@ -56,7 +57,7 @@ export function clientInfo(request: Request, uid: string): ClientInfo {
   const system = label(ua, SYSTEMS) ?? "不明なOS";
   const device = `${browser} / ${system}`;
   return {
-    ipPrefix: truncateIp(firstIp(request.headers.get("x-forwarded-for"))),
+    ipPrefix: truncateIp(clientIp(request.headers.get("x-forwarded-for"))),
     device,
     deviceHash: createHash("sha256").update(`${uid}\u0000${device}`).digest("hex").slice(0, 16),
   };

@@ -17,6 +17,8 @@ function snippet(lang: "node" | "python", ingestUrl: string): string {
 // パスワードなどの欄は伏せてから送ります（AgentGuard には届きません）。
 const SECRET = /pass|pwd|token|secret|card|cvc|otp/i;
 const hide = (o) => Object.fromEntries(Object.entries(o ?? {}).map(([k, v]) => [k, SECRET.test(k) ? "[伏せ字]" : v]));
+// 接続元IP：Cloud Run などの後ろでは、X-Forwarded-For の「最後」が本当の接続元です（前の部分は偽装できます）。
+const clientIp = (req) => (req.get("x-forwarded-for") || "").split(",").pop().trim() || req.socket.remoteAddress;
 app.use(async (req, res, next) => {
   try {
     const r = await fetch("${ingestUrl}", {
@@ -26,7 +28,7 @@ app.use(async (req, res, next) => {
         method: req.method, path: req.path, query: hide(req.query),
         headers: { "user-agent": req.get("user-agent") || "", "content-type": "application/json" },
         body: req.body && typeof req.body === "object" ? JSON.stringify(hide(req.body)) : "",
-        ip: req.ip,
+        ip: clientIp(req),
       }),
       signal: AbortSignal.timeout(2000),
     });
@@ -43,6 +45,11 @@ from starlette.responses import PlainTextResponse
 
 SECRET = re.compile(r"pass|pwd|token|secret|card|cvc|otp", re.I)
 
+def client_ip(request):
+    # Cloud Run などの後ろでは、X-Forwarded-For の「最後」が本当の接続元です（前の部分は偽装できます）。
+    xff = request.headers.get("x-forwarded-for", "")
+    return xff.split(",")[-1].strip() if xff else (request.client.host if request.client else None)
+
 @app.middleware("http")
 async def agentguard(request, call_next):
     try:
@@ -52,7 +59,7 @@ async def agentguard(request, call_next):
                 json={"method": request.method, "path": request.url.path,
                       "query": {k: ("[伏せ字]" if SECRET.search(k) else v) for k, v in request.query_params.items()},
                       "headers": {"user-agent": request.headers.get("user-agent", "")},
-                      "ip": request.client.host if request.client else None})
+                      "ip": client_ip(request)})
         if r.json().get("block"):
             return PlainTextResponse("Blocked by AgentGuard", status_code=403)
     except Exception:
@@ -136,6 +143,10 @@ function VerifiedPanel({ site, keyHint, freshKey }: { site: ProtectedSite; keyHi
           <p className="text-xs font-bold text-amber-700">所有を確認しました。次は取り込みキーを設定します（この画面を離れると二度と表示されません）</p>
           <p className="mt-1 text-xs text-muted">サイトの環境変数 <code className="font-mono">AGENTGUARD_INGEST_KEY</code> に設定し、下の組み込みコードをサイトに入れてください。</p>
           <div className="mt-2"><CopyField value={freshKey} label="取り込みキー" /></div>
+          <ul className="mt-2 list-disc space-y-0.5 pl-5 text-[11px] text-muted">
+            <li><b className="text-ink">取り込みキーは秘密です。</b>HTML・公開リポジトリ・ブラウザで動くコードには書かず、サーバーの環境変数にだけ置いてください。</li>
+            <li>所有確認に使った合言葉のファイルは、もう消しても大丈夫です（公開されていても悪用はできません）。</li>
+          </ul>
         </div>
       ) : (
         <p className="text-xs text-muted">取り込みキー：<code className="font-mono">ag_…{keyHint}</code>（再発行は「別のサイトに変更」から）</p>

@@ -90,10 +90,16 @@ async def _authenticate_ingest(request: Request, req: ingest.IngestRequest) -> t
     tenant_id, _host = await store.tenant_for_ingest_key(ingest.hash_key(token))
     if tenant_id:
         return tenant_id, False  # a real site's ingest key
+    settings = app.state.settings
+    audience = settings.sim_audience or f"https://{request.headers.get('host', '')}"
+    # AgentGuard's own dashboard reports its real visitors; the tenant comes from config, not the request.
+    if req.agentguardSelf:
+        if settings.self_tenant_id and await asyncio.to_thread(app.state.verifier.verify, token, audience):
+            return settings.self_tenant_id, False
+        log("WARNING", "rejected self-protection ingest (disabled or token not from the dashboard)")
+        return None, False
     # The attack simulator reports synthetic events with the dashboard's service-account token.
     if req.simulated and req.tenantId:
-        settings = app.state.settings
-        audience = settings.sim_audience or f"https://{request.headers.get('host', '')}"
         if await asyncio.to_thread(app.state.verifier.verify, token, audience):
             return req.tenantId, True
         log("WARNING", "rejected simulated ingest (token not from the dashboard)")
