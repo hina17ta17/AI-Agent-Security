@@ -72,6 +72,16 @@ class Pipeline:
             "timings": {"receivedAt": event.received_at, "wafRuleMs": event.waf_rule_ms},
         })
         await store.set_tenant_status(t, "responding", incident_id)
+        try:
+            return await self._respond(inc, tenant)
+        except Exception:
+            # Never leave the dashboard stuck in "responding" (e.g. storage failing mid-incident).
+            await self._recover(inc)
+            raise
+
+    async def _respond(self, inc: Incident, tenant: dict) -> str:
+        s, store, event = self.settings, self.store, inc.event
+        t, incident_id = inc.tenant_id, inc.incident_id
         await store.bump_ip_history(t, event.src_ip, incident_id)
         await inc.step("mihari", "detect",
                        f"ミハリ：{event.rule_label_ja} を {event.waf_rule_ms:.2f}ms で遮断しました。AIチームに出動を依頼します。",
@@ -125,6 +135,24 @@ class Pipeline:
             route=inc.route, inputTokens=inc.usage.input_tokens, outputTokens=inc.usage.output_tokens,
             aiActionSec=round((action_at - event.received_at).total_seconds(), 2) if action_at else None)
         return status
+
+    async def _recover(self, inc: Incident) -> None:
+        """Best effort after an unexpected crash: keep the attacker out and reset the tenant status."""
+        store, t = self.store, inc.tenant_id
+        steps = []
+        if not inc.actions:
+            steps.append(("fallback block", lambda: do_block(
+                inc, self.settings.fallback_block_minutes,
+                "（自動）処理中にエラーが起きたため、WAFのルールに基づいて一時的にブロック", "system:fallback")))
+        steps.append(("mark incident", lambda: store.update_incident(
+            t, inc.incident_id, {"status": "fallback", "failure": "internal_error"})))
+        steps.append(("reset tenant status", lambda: store.set_tenant_status(
+            t, "awaiting_approval" if inc.approvals else "safe", inc.incident_id)))
+        for name, run in steps:
+            try:
+                await run()
+            except Exception as exc:
+                log("ERROR", "recovery step failed", incidentId=inc.incident_id, step=name, error=repr(exc)[:300])
 
     # ------------------------------------------------------------------ AI team
 

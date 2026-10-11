@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect } from "react";
 
+import { AttackBackdrop } from "@/components/attack-backdrop";
 import { Logo } from "@/components/logo";
 import { Badge, Button, cx } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
@@ -69,6 +70,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen">
+      <AttackBackdrop />
       <header className="sticky top-0 z-20 border-b border-line bg-white/85 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6">
           <Link href="/app" aria-label="AgentGuard ダッシュボード"><Logo /></Link>

@@ -24,6 +24,13 @@
   --animate-breathe: breathe 4s ease-in-out infinite;
   --animate-ripple: ripple 1.6s ease-out infinite;
   --animate-float: float 3s ease-in-out infinite;
+  --animate-attack-glow: attack-glow 1.8s ease-in-out infinite;
+
+  /* Edge glow shown over the whole screen while the AI team responds to an attack. */
+  @keyframes attack-glow {
+    0%, 100% { box-shadow: inset 0 0 0 3px rgb(244 63 94 / 0.35), inset 0 0 90px rgb(244 63 94 / 0.18); }
+    50% { box-shadow: inset 0 0 0 5px rgb(244 63 94 / 0.55), inset 0 0 140px rgb(244 63 94 / 0.30); }
+  }
 
   @keyframes breathe {
     0%, 100% { transform: scale(1); opacity: 0.55; }
