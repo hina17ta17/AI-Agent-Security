@@ -1,15 +1,19 @@
 "use client";
 
-import { useTenant } from "@/lib/hooks";
+import { liveStatus } from "@/lib/activity";
+import { useNow, useTenant } from "@/lib/hooks";
 
 import { cx } from "./ui";
 
 /**
  * While the AI team is responding to an attack, the whole screen turns light red and its edges
  * glow, so the attack is obvious from any page. Purely visual: it never captures clicks.
+ * With several attacks at once it stays red until the last investigation has finished.
  */
 export function AttackBackdrop() {
-  const responding = useTenant().data?.status === "responding";
+  const tenant = useTenant().data;
+  const now = useNow(5000); // only for the stale guard
+  const responding = liveStatus(tenant, now).status === "responding";
   return (
     <>
       <div

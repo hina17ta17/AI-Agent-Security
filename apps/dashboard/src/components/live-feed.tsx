@@ -18,6 +18,7 @@ const KIND_STYLE: Record<string, string> = {
   approval: "border-warn/50 bg-warn/12 font-semibold",
   refused: "border-warn/40 bg-warn/8",
   policy: "border-warn/40 bg-warn/8",
+  wave: "border-brand/30 bg-brand/5 font-semibold",
   warning: "border-warn/40 bg-warn/8",
   error: "border-danger/40 bg-danger/8",
 };

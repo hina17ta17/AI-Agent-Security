@@ -139,7 +139,8 @@ def defender_brief(inc: Incident) -> str:
 
 
 _SEVERITY_JA = {"low": "低", "medium": "中", "high": "高", "critical": "重大"}
-ACTOR_JA = {"agent:mamoru": "マモル", "system:policy": "自動ルール", "system:fallback": "自動ルール（AI不使用）"}
+ACTOR_JA = {"agent:mamoru": "マモル", "system:policy": "自動ルール", "system:fallback": "自動ルール（AI不使用）",
+            "system:wave": "攻撃の波（ルール）"}
 
 
 def actor_ja(actor: str) -> str:

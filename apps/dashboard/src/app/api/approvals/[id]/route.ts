@@ -3,7 +3,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db } from "@/lib/server/admin";
 import { requireUser } from "@/lib/server/auth";
 import { handle, HttpError, json, readJson } from "@/lib/server/http";
-import { audit, tenantRef } from "@/lib/server/tenant";
+import { audit, settleStatus, tenantRef } from "@/lib/server/tenant";
 
 /**
  * Human-in-the-loop: the AI can only REQUEST site isolation; it happens here, when a human approves.
@@ -44,8 +44,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/approvals/[
       return { action: approval.action as string, incidentId: (approval.incidentId as string) ?? null, minutes, until };
     });
 
-    const pending = await tenant.collection("approvals").where("status", "==", "pending").limit(1).get();
-    if (pending.empty) await tenant.set({ status: "safe" }, { merge: true });
+    await settleStatus(uid);
     await audit(uid, decision === "approve" ? "approve_isolation" : "reject_isolation",
       { approvalId: id, minutes: outcome.minutes },
       { status: decision === "approve" ? "site_in_maintenance" : "rejected", until: outcome.until?.toISOString() ?? null },

@@ -80,6 +80,7 @@ export const ACTOR_LABEL: Record<string, string> = {
   "agent:mamoru": "マモル",
   "system:policy": "自動ルール",
   "system:fallback": "自動ルール（AI不使用）",
+  "system:wave": "攻撃の波（ルール）",
   user: "あなた",
   system: "システム",
 };

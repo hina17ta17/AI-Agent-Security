@@ -1,9 +1,10 @@
 "use client";
 
-import { ExternalLink, ShieldAlert, ShieldCheck, ShieldEllipsis, Wrench } from "lucide-react";
+import { ExternalLink, Layers, ShieldAlert, ShieldCheck, ShieldEllipsis, Wrench } from "lucide-react";
 import type { Timestamp } from "firebase/firestore";
 import { motion } from "motion/react";
 
+import { liveStatus } from "@/lib/activity";
 import { remaining, seconds, toDate } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import type { Incident, Tenant } from "@/lib/types";
@@ -27,21 +28,25 @@ export function StatusHero({ tenant, incident, siteUrl, defendedAt }: {
   defendedAt?: Timestamp | null;
 }) {
   const now = useNow(200);
+  const { status, activeIds } = liveStatus(tenant, now);
   const maintenanceUntil = toDate(tenant?.maintenanceUntil);
   const inMaintenance = tenant?.siteMode === "maintenance" && (!maintenanceUntil || maintenanceUntil.getTime() > now);
   const mode: Mode =
-    tenant?.status === "responding" ? "responding"
-    : tenant?.status === "awaiting_approval" ? "awaiting"
+    status === "responding" ? "responding"
+    : status === "awaiting_approval" ? "awaiting"
     : inMaintenance ? "maintenance"
     : "safe";
   const c = COPY[mode];
+  // Timers belong to the incident on screen; with concurrent attacks others may still be running.
+  const incidentLive = mode === "responding" && incident?.status === "analyzing";
   // Both timestamps come from server clocks; `now` is server-aligned (see lib/clock.ts).
   const received = toDate(incident?.timings?.receivedAt);
   const defended = toDate(defendedAt);
   const defendSec = mode === "responding" && received && defended
     ? Math.max(0, (defended.getTime() - received.getTime()) / 1000) : null;
-  const elapsed = mode === "responding" && received && defendSec === null
+  const elapsed = incidentLive && received && defendSec === null
     ? Math.max(0, (now - received.getTime()) / 1000) : null;
+  const concurrent = mode === "responding" ? activeIds.length : 0;
   const Icon = mode === "responding" ? ShieldAlert : mode === "awaiting" ? ShieldEllipsis : mode === "maintenance" ? Wrench : ShieldCheck;
 
   return (
@@ -83,6 +88,11 @@ export function StatusHero({ tenant, incident, siteUrl, defendedAt }: {
           <p className="mt-1 text-sm text-muted">{c.sub}</p>
 
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+            {concurrent >= 2 && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-danger px-3 py-1 text-sm font-bold text-white tabular-nums">
+                <Layers size={14} /> 同時に {concurrent} 件対応中
+              </span>
+            )}
             {elapsed !== null && (
               <span className="rounded-full bg-danger/10 px-3 py-1 font-mono text-sm font-bold text-rose-600 tabular-nums">
                 経過 {seconds(elapsed)} 秒
@@ -93,7 +103,7 @@ export function StatusHero({ tenant, incident, siteUrl, defendedAt }: {
                 <span className="inline-flex items-center gap-1 rounded-full bg-safe/15 px-3 py-1 font-mono text-sm font-bold text-emerald-700 tabular-nums">
                   <ShieldCheck size={14} /> 防御完了 {seconds(defendSec)} 秒
                 </span>
-                <span className="text-xs text-muted">ツタエが報告書を作成中…</span>
+                {incidentLive && <span className="text-xs text-muted">ツタエが報告書を作成中…</span>}
               </>
             )}
             {mode === "maintenance" && (

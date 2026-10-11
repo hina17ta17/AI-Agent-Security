@@ -63,6 +63,21 @@
 > **最終構成のクラウド実測**：ミハリ約0.1ms → 番人 約0.6〜1秒 → シラベ 約1.2秒 → マモルのブロック完了 **約3〜5秒** → ツタエの報告 約7〜8秒。1件あたり約0.3〜0.5円。
 > 対策：起動時に各モデルへ接続を済ませておく（ウォームアップ）、agent は最低1台を待機、429/5xx は間隔をあけて最大4回まで再試行。
 
+### 同時に複数の攻撃が来たとき（実装済み）
+
+| 仕組み | 内容 |
+|---|---|
+| ① 進行中の調査を集合で管理 | `tenants/{uid}.active = {incidentId: 開始時刻}`。追加（admit）と終了（finish）はトランザクションで行い、**1件でも残っていれば「迎撃中」のまま**。5分以上前のものは無視する（落ちた処理で画面が赤のまま固まらない） |
+| ② 画面で複数を同時に表示 | 「同時に N 件対応中」、インシデントのタブ（対応中／完了）。自動で最新を追い、**タブを選ぶと固定**（「自動で追う」で解除） |
+| ③ 攻撃の波（campaign） | AI の同時調査は**1テナント3件まで**。それを超えた分は AI を待たずに**ルールで即ブロック**（種類ごとの基本時間：SQLi 120分・XSS 60分・パストラバーサル 60分・OSコマンド 720分）。AI の判断が基本時間より長ければ、同じ種類の残りの攻撃にもその時間を適用し、すでにルールで止めた分も**延長**する（短くはしない） |
+| ④ 安全装置 | 同じIP・同じ種類は1件にまとめる（判定とAI枠の確保は1つのトランザクション）。枠の確保に失敗したら AI を使わずにルールでブロック。Cloud Run は agent を1台40件・最大10台、target を最大10台まで増やせる |
+
+- 波の状態は `tenants/{uid}/campaigns/{waveId}`（件数・種類別・攻撃元IP・AIの判断・ブロックまでの秒数）と `blocks/{ip}` に記録し、画面の「攻撃の波」カードに表示する
+- 波は最後のイベントから60秒で終息とみなす。AI の利用回数（1日の上限）は、波の中でも調査した件数（最大3件）しか消費しない
+- 速さの工夫：①同じインスタンスがすでに AI の枠をすべて持っていれば、トランザクションを使わずに「波」と判定する（同時に届いたイベントがテナントの文書で順番待ちにならない）。②ブロックを先に行い、波の作成・集計はそのあとにする。③新しい波の作成は1インスタンスで1回にまとめる。④Firestore の競合（読み取り中の abort）はクライアントが再試行しないため、ジッター付きで再試行する
+
+> 実測（2026-10-11、クラウド）：同時に30件 → AI が3件を並行して調査（各約5秒でブロック）、27件はルールで**検知から中央値1.5秒**でブロック（Pub/Sub の配送 約0.6秒を含む）。改善前は競合で約2.5秒、読み取り中の abort で1件が失敗していた。30件すべての攻撃元IPをブロックし、AI の同時調査は最大3件、画面は最後の調査が終わるまで「迎撃中」のまま
+
 - 画面には「**初動遮断：○ms**（WAF）」と「**AI対処完了：○秒**（AI）」を分けて表示する。架空の数字は出さない
 - 報告は防御が終わってから作るので、防御完了までに必要なAI呼び出しは2回で済む
 - AIを常駐させない（イベントが来たときだけ起動）。コールドスタートの対策は、デモのときだけ最小インスタンス数を1にする
@@ -151,8 +166,14 @@
 ```
 tenants/{uid}
   siteId, aiMode: "byok"|"demo", keyHint: "a1B2", keyStatus: "none"|"valid"|"invalid", keyUpdatedAt
-  status: "safe"|"alert"|"responding", activeIncidentId
+  status: "safe"|"responding"|"awaiting_approval", statusAt, activeIncidentId
+  active: { incidentId: startedAt }   ← いま動いている AI の調査（最大3件）
+  campaignId                          ← 最新の「攻撃の波」
   settings: { allowlist: [cidr], maxBlockMinutes, requireApprovalFor: ["isolate"] }
+tenants/{uid}/campaigns/{waveId}
+  openedAt, lastEventAt, events, ruleBlocks, extendedBlocks, byType{}, ips[], analyzedIncidents[]
+  aiDecisions: { attackType: { minutes, severity, incidentId } }
+tenants/{uid}/campaigns/{waveId}/blocks/{ip}   type, minutes, source: policy|ai, at
 tenants/{uid}/incidents/{incidentId}
   status: detected|analyzing|defending|awaiting_approval|resolved|failed
   attack: { ruleId, type, method, path, srcIp, payloadPreview }

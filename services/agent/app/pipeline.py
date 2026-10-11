@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from google.adk.runners import Runner
@@ -16,6 +17,7 @@ from google.genai import errors as genai_errors
 from google.genai import types
 from opentelemetry import trace
 
+from .concurrency import is_open, wave_block_minutes
 from .config import Settings
 from .context import Incident
 from .guard import Gatekeeper
@@ -25,7 +27,7 @@ from .models import SecurityEvent
 from .store import Store
 from .team import AGENT_NAMES, build_team
 from .telemetry import trace_url
-from .tools import do_block
+from .tools import do_block, protection_reason
 
 JST = timezone(timedelta(hours=9))
 tracer = trace.get_tracer("agentguard.agent")
@@ -36,6 +38,8 @@ class Pipeline:
         self.settings = settings
         self.store = store
         self.gatekeeper = gatekeeper
+        self._local_ai: Counter[str] = Counter()  # AI slots this instance holds or is reserving, per tenant
+        self._opening: dict[str, asyncio.Future] = {}  # in-flight "open the wave" call, per tenant
 
     async def handle(self, event: SecurityEvent) -> str:
         s, store, t = self.settings, self.store, event.tenant_id
@@ -48,36 +52,39 @@ class Pipeline:
             return "unknown-tenant"
 
         incident_id = f"{event.received_at.astimezone(JST):%Y%m%d-%H%M%S}-{event.event_id[:6]}"
-        open_incident = await store.group_or_open(t, event.src_ip, event.attack_type, incident_id,
-                                                  s.dedupe_window_sec)
-        if open_incident:
-            await store.add_related_event(t, open_incident)
+        decision, open_incident = await self._admit(event, incident_id)
+        if decision == "grouped":
+            if open_incident:
+                await store.add_related_event(t, open_incident)
             return "grouped"
+        if decision == "full":
+            # Every AI slot of this tenant is busy: many attacks at once. Handle it as an attack wave.
+            return await self._wave(event, tenant)
 
-        history = await store.ip_history(t, event.src_ip)
         inc = Incident(settings=s, store=store, event=event, incident_id=incident_id,
-                       allowlist=list((tenant.get("settings") or {}).get("allowlist") or []),
-                       previous_incidents=int(history.get("incidents", 0)))
+                       allowlist=list((tenant.get("settings") or {}).get("allowlist") or []))
         inc.timings["pushReceivedAt"] = push_received_at
         inc.mark("aiStartedAt")
-        await store.create_incident(t, incident_id, {
-            "status": "analyzing",
-            "eventId": event.event_id,
-            "relatedEvents": 1,
-            "attack": {
-                "ruleId": event.rule_id, "type": event.attack_type, "labelJa": event.rule_label_ja,
-                "method": event.method, "path": event.path[:300], "field": event.field,
-                "srcIp": event.src_ip, "simulated": event.simulated, "payloadPreview": event.payload[:300],
-            },
-            "timings": {"receivedAt": event.received_at, "wafRuleMs": event.waf_rule_ms},
-        })
-        await store.set_tenant_status(t, "responding", incident_id)
-        try:
+        try:  # from here on an AI slot is reserved: it is released in `finally`, even after a crash
+            inc.previous_incidents = int((await store.ip_history(t, event.src_ip)).get("incidents", 0))
+            await store.create_incident(t, incident_id, {
+                "status": "analyzing",
+                "eventId": event.event_id,
+                "relatedEvents": 1,
+                "attack": {
+                    "ruleId": event.rule_id, "type": event.attack_type, "labelJa": event.rule_label_ja,
+                    "method": event.method, "path": event.path[:300], "field": event.field,
+                    "srcIp": event.src_ip, "simulated": event.simulated, "payloadPreview": event.payload[:300],
+                },
+                "timings": {"receivedAt": event.received_at, "wafRuleMs": event.waf_rule_ms},
+            })
             return await self._respond(inc, tenant)
         except Exception:
-            # Never leave the dashboard stuck in "responding" (e.g. storage failing mid-incident).
             await self._recover(inc)
             raise
+        finally:
+            # Never leave the dashboard stuck in "responding" (e.g. storage failing mid-incident).
+            await self._release(inc)
 
     async def _respond(self, inc: Incident, tenant: dict) -> str:
         s, store, event = self.settings, self.store, inc.event
@@ -128,7 +135,7 @@ class Pipeline:
                 "totalSec": round((resolved_at - event.received_at).total_seconds(), 2),
             },
         })
-        await store.set_tenant_status(t, "awaiting_approval" if inc.approvals else "safe", incident_id)
+        await self._share_with_wave(inc)
         await store.audit(t, "system", "incident_closed", {"incidentId": incident_id},
                           {"status": status, "actions": len(inc.actions)}, incident_id)
         log("NOTICE", "incident closed", incidentId=incident_id, tenantId=t, status=status, mode=inc.mode,
@@ -136,8 +143,131 @@ class Pipeline:
             aiActionSec=round((action_at - event.received_at).total_seconds(), 2) if action_at else None)
         return status
 
+    # ------------------------------------------------------------------ attack waves
+
+    async def _admit(self, event: SecurityEvent, incident_id: str) -> tuple[str, str | None]:
+        """Group with an open incident, reserve an AI slot, or report that every slot is busy.
+
+        A burst lands on one instance (concurrency 40). When this instance alone already holds or is
+        reserving every AI slot of the tenant, the answer is "full" without a transaction, so an
+        attack wave never queues on the tenant document. Otherwise Firestore decides atomically.
+        """
+        s, store, t = self.settings, self.store, event.tenant_id
+        if self._local_ai[t] >= s.max_concurrent_ai:
+            open_incident = await store.find_open_group(t, event.src_ip, event.attack_type)
+            return ("grouped", open_incident) if open_incident else ("full", None)
+        self._local_ai[t] += 1
+        try:
+            decision = await store.admit(t, event.src_ip, event.attack_type, incident_id,
+                                         cap=s.max_concurrent_ai, stale_sec=s.active_stale_sec,
+                                         window_sec=s.dedupe_window_sec)
+        except Exception as exc:
+            # No consistent answer (e.g. extreme contention): block by rule rather than risk unbounded AI runs.
+            log("WARNING", "admission failed; handling the event as part of an attack wave",
+                tenantId=t, eventId=event.event_id, error=repr(exc)[:300])
+            decision = ("full", None)
+        if decision[0] != "admitted":
+            self._release_local(t)
+        return decision
+
+    def _release_local(self, t: str) -> None:
+        self._local_ai[t] -= 1
+        if self._local_ai[t] <= 0:
+            del self._local_ai[t]
+
+    async def _open_wave(self, t: str) -> str:
+        """Concurrent wave events on this instance share one open-or-create call per tenant."""
+        task = self._opening.get(t)
+        if task is None:
+            task = asyncio.ensure_future(
+                self.store.open_campaign(t, self.settings.wave_idle_sec, self.settings.active_stale_sec))
+            self._opening[t] = task
+            task.add_done_callback(lambda _: self._opening.pop(t, None))
+        return await asyncio.shield(task)
+
+    async def _wave(self, event: SecurityEvent, tenant: dict) -> str:
+        """Every AI slot is busy: block at once by rule (no AI call), then count the event in the wave."""
+        s, store, t = self.settings, self.store, event.tenant_id
+        # The block comes first: opening or counting the wave must never delay it.
+        known = tenant.get("campaignId")
+        wave = await store.get_campaign(t, known) if known else None
+        if wave and not is_open(wave.get("lastEventAt"), datetime.now(timezone.utc), s.wave_idle_sec):
+            wave = None
+        minutes, source = wave_block_minutes(event.attack_type, (wave or {}).get("aiDecisions"))
+        # The same guard rails as Mamoru's tool: never block an allowlisted or internal address.
+        probe = Incident(settings=s, store=store, event=event, incident_id=known or "wave",
+                         allowlist=list((tenant.get("settings") or {}).get("allowlist") or []))
+        why = protection_reason(probe)
+        if not why:
+            reason = (f"（攻撃の波）AIの判断に合わせて{minutes}分ブロック" if source == "ai"
+                      else "（攻撃の波）同時に多数の攻撃が来たため、AIの解析を待たずにルールで即ブロック")
+            until = await store.block_ip(t, event.src_ip, minutes, reason, known if wave else None, "system:wave")
+            block_sec = round((datetime.now(timezone.utc) - event.received_at).total_seconds(), 2)
+            log("NOTICE", "wave event blocked by rule", tenantId=t, ip=event.src_ip, attackType=event.attack_type,
+                minutes=minutes, source=source, blockSec=block_sec)
+        cid = known if wave else None
+        try:  # the block is in place; the rest is bookkeeping for the dashboard
+            cid = cid or await self._open_wave(t)
+            if why:
+                await store.record_wave_event(t, cid, event.src_ip, event.attack_type, None, "refused")
+                await store.audit(t, "system:wave", "block_ip", {"ip": event.src_ip},
+                                  {"status": "refused", "why": why, "campaignId": cid}, None)
+                return "wave-refused"
+            await store.record_wave_event(t, cid, event.src_ip, event.attack_type, minutes, source, block_sec)
+            if source == "policy":
+                # An AI decision may have landed while we were blocking by policy: apply it now.
+                decision = (((await store.get_campaign(t, cid)) or {}).get("aiDecisions") or {}).get(event.attack_type) or {}
+                later, later_source = wave_block_minutes(event.attack_type, {event.attack_type: decision})
+                if later_source == "ai" and later > minutes:
+                    await store.extend_wave_block(t, cid, event.src_ip, later, decision.get("incidentId") or cid)
+                    minutes, source = later, "ai"
+            await store.bump_ip_history(t, event.src_ip, cid)
+            await store.audit(t, "system:wave", "block_ip", {"ip": event.src_ip, "minutes": minutes, "source": source},
+                              {"status": "blocked", "until": until.isoformat(), "campaignId": cid}, None)
+        except Exception as exc:
+            log("WARNING", "could not record the wave event", campaignId=cid, error=repr(exc)[:300])
+        return "wave-refused" if why else "wave"
+
+    async def _share_with_wave(self, inc: Incident) -> None:
+        """If an attack wave is open, the AI's decision guides it and tightens shorter rule blocks."""
+        s, store, t = self.settings, self.store, inc.tenant_id
+        try:
+            cid = (await store.get_tenant(t) or {}).get("campaignId")
+            wave = await store.get_campaign(t, cid) if cid else None
+            if not wave or not is_open(wave.get("lastEventAt"), datetime.now(timezone.utc), s.wave_idle_sec):
+                return
+            block = next((a for a in inc.actions if a["type"] == "block_ip"), None)
+            if not block or not inc.verdict:
+                return
+            minutes = int(block["minutes"])
+            extended = await store.record_campaign_decision(t, cid, inc.event.attack_type, minutes,
+                                                            inc.verdict.severity, inc.incident_id)
+            await store.update_incident(t, inc.incident_id, {"campaignId": cid})
+            if extended:
+                await inc.step("system", "wave",
+                               f"攻撃の波：ルールでブロックしていた同じ種類の攻撃 {len(extended)} 件を、"
+                               f"AIの判断（{minutes}分）に合わせて延長しました。")
+        except Exception as exc:  # sharing is an improvement, never a reason to fail the incident
+            log("WARNING", "could not share the decision with the wave", incidentId=inc.incident_id,
+                error=repr(exc)[:300])
+
+    async def _release(self, inc: Incident) -> None:
+        """Free the AI slot; the tenant returns to 'safe' once nothing else is running or pending."""
+        try:
+            for attempt in range(1, 4):
+                try:
+                    await self.store.finish_ai(inc.tenant_id, inc.incident_id, self.settings.active_stale_sec)
+                    return
+                except Exception as exc:  # after ACTIVE_STALE_SEC the slot is ignored anyway
+                    log("ERROR" if attempt == 3 else "WARNING", "could not release the AI slot",
+                        incidentId=inc.incident_id, attempt=attempt, error=repr(exc)[:300])
+                    if attempt < 3:
+                        await asyncio.sleep(0.5 * attempt)
+        finally:
+            self._release_local(inc.tenant_id)
+
     async def _recover(self, inc: Incident) -> None:
-        """Best effort after an unexpected crash: keep the attacker out and reset the tenant status."""
+        """Best effort after an unexpected crash: keep the attacker out and mark the incident."""
         store, t = self.store, inc.tenant_id
         steps = []
         if not inc.actions:
@@ -146,8 +276,6 @@ class Pipeline:
                 "（自動）処理中にエラーが起きたため、WAFのルールに基づいて一時的にブロック", "system:fallback")))
         steps.append(("mark incident", lambda: store.update_incident(
             t, inc.incident_id, {"status": "fallback", "failure": "internal_error"})))
-        steps.append(("reset tenant status", lambda: store.set_tenant_status(
-            t, "awaiting_approval" if inc.approvals else "safe", inc.incident_id)))
         for name, run in steps:
             try:
                 await run()

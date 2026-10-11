@@ -40,6 +40,9 @@ class Settings:
     max_block_minutes: int
     fallback_block_minutes: int
     run_timeout_sec: int
+    max_concurrent_ai: int  # full AI investigations per tenant at the same time
+    active_stale_sec: int
+    wave_idle_sec: int
     enable_cloud_trace: bool
     dev_mode: bool
 
@@ -79,6 +82,9 @@ def get_settings() -> Settings:
         max_block_minutes=_int("MAX_BLOCK_MINUTES", 1440),
         fallback_block_minutes=_int("FALLBACK_BLOCK_MINUTES", 30),
         run_timeout_sec=_int("RUN_TIMEOUT_SEC", 90),
+        max_concurrent_ai=_int("MAX_CONCURRENT_AI_PER_TENANT", 3),
+        active_stale_sec=_int("ACTIVE_STALE_SEC", 300),
+        wave_idle_sec=_int("WAVE_IDLE_SEC", 60),
         enable_cloud_trace=os.environ.get("ENABLE_CLOUD_TRACE", "false").lower() == "true",
         dev_mode=os.environ.get("DEV_MODE", "false").lower() == "true",
     )

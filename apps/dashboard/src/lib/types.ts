@@ -11,9 +11,36 @@ export type Tenant = {
   keyStatus: "none" | "valid" | "invalid";
   keyHint: string | null;
   status?: TenantStatus;
+  statusAt?: Timestamp;
+  /** AI investigations running now: incidentId -> start time (written only by the agent). */
+  active?: Record<string, Timestamp>;
+  /** The most recently started investigation (the dashboard follows it unless a tab is pinned). */
   activeIncidentId?: string;
+  /** The latest attack wave (many attacks at once). */
+  campaignId?: string;
   lastAttackerIp?: string;
   settings?: { allowlist?: string[] };
+};
+
+/** An attack wave: beyond the concurrent-AI cap, events are blocked at once by rule. */
+export type Campaign = {
+  id: string;
+  openedAt?: Timestamp;
+  lastEventAt?: Timestamp;
+  /** Events handled by rule (no AI call), including refused ones. */
+  events?: number;
+  ruleBlocks?: number;
+  /** Rule blocks lengthened to an AI decision made during the wave. */
+  extendedBlocks?: number;
+  /** Seconds from the WAF detection to the rule block (sum / count / max over timed blocks). */
+  blockSecTotal?: number;
+  timedBlocks?: number;
+  blockSecMax?: number;
+  byType?: Record<string, number>;
+  ips?: string[];
+  /** Incidents the AI investigated in full while the wave was going on. */
+  analyzedIncidents?: string[];
+  aiDecisions?: Record<string, { minutes: number; severity: Verdict["severity"]; incidentId: string }>;
 };
 
 export type Verdict = {
@@ -64,6 +91,8 @@ export type Incident = {
   actions?: Action[];
   approvals?: { id: string; action: string; minutes: number }[];
   approvalDecision?: "approve" | "reject";
+  /** Set when this investigation guided an attack wave. */
+  campaignId?: string;
   report?: { markdown: string };
   failure?: string | null;
   usage?: { inputTokens: number; outputTokens: number; byModel?: Record<string, { inputTokens: number; outputTokens: number }> };

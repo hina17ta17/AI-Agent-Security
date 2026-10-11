@@ -35,6 +35,22 @@ export function randomAttackerIp(kind: AttackKind): string {
   return `${net}.${20 + Math.floor(Math.random() * 200)}`;
 }
 
+/** Distinct demo attacker addresses (RFC 5737), skipping ones that are already blocked. */
+export function distinctAttackerIps(count: number, exclude: Set<string>): string[] {
+  const pool: string[] = [];
+  for (const net of ["203.0.113", "198.51.100"]) {
+    for (let host = 20; host < 220; host++) {
+      const ip = `${net}.${host}`;
+      if (!exclude.has(ip)) pool.push(ip);
+    }
+  }
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, count);
+}
+
 let idClient: Promise<IdTokenClient> | null = null;
 
 async function simToken(): Promise<string | null> {

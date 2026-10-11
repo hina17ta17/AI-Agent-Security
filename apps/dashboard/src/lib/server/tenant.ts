@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
 import { db } from "./admin";
 import { HttpError } from "./http";
@@ -51,6 +51,24 @@ export async function getTenant(uid: string): Promise<TenantDoc> {
   const snap = await tenantRef(uid).get();
   if (!snap.exists) throw new HttpError(404, "アカウントの準備ができていません。ページを再読み込みしてください。");
   return snap.data() as TenantDoc;
+}
+
+const ACTIVE_STALE_MS = 300_000; // same as the agent's ACTIVE_STALE_SEC
+
+/**
+ * Recompute the tenant status with the agent's rule: "responding" while any AI investigation
+ * is still running (several can run at once), then "awaiting_approval", otherwise "safe".
+ */
+export async function settleStatus(uid: string) {
+  const ref = tenantRef(uid);
+  const pendingQuery = ref.collection("approvals").where("status", "==", "pending").limit(1);
+  await db().runTransaction(async (tx) => {
+    const [snap, pending] = await Promise.all([tx.get(ref), tx.get(pendingQuery)]);
+    const active = Object.values((snap.get("active") ?? {}) as Record<string, unknown>)
+      .filter((at) => at instanceof Timestamp && Date.now() - at.toMillis() < ACTIVE_STALE_MS).length;
+    const status = active > 0 ? "responding" : pending.empty ? "safe" : "awaiting_approval";
+    tx.set(ref, { status, statusAt: FieldValue.serverTimestamp() }, { merge: true });
+  });
 }
 
 /** Every human action is recorded next to the AI's actions (same audit trail). */

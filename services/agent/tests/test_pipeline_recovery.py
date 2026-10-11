@@ -21,17 +21,19 @@ class CrashingStore(FakeStore):
     async def get_tenant(self, t):
         return {"aiMode": "demo", "settings": {"allowlist": []}}
 
-    async def group_or_open(self, t, ip, attack_type, new_incident_id, window_sec):
-        return None
+    async def admit(self, t, ip, attack_type, incident_id, *, cap, stale_sec, window_sec):
+        self.status_history.append("responding")
+        return "admitted", None
+
+    async def finish_ai(self, t, incident_id, stale_sec):
+        self.status_history.append("safe")
+        return "safe"
 
     async def ip_history(self, t, ip):
         return {}
 
     async def create_incident(self, t, i, data):
         pass
-
-    async def set_tenant_status(self, t, status, incident_id=None):
-        self.status_history.append(status)
 
     async def bump_ip_history(self, t, ip, incident_id):
         raise RuntimeError("storage unavailable")  # crash right after 'responding'
