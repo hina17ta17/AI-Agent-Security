@@ -80,16 +80,80 @@ START → 番人（コード：Model Armor） → シラベ（LLM：構造化判
 - 1件ごとのトークン数（モデル別）と推定コストを記録
 - 秘密情報を含まない構造化ログ（Cloud Logging）
 
-## 使用技術とハッカソンの条件
+## 技術要件
 
-| 区分 | 使用しているもの |
+### 動作環境
+
+| 項目 | 要件 |
 |---|---|
-| **Google Cloud の実行環境（必須）** | **Cloud Run**（dashboard / target / agent の3サービス） |
-| **Google Cloud の AI 技術（必須）** | **Agent Development Kit（ADK 2.x Workflow）**、**Gemini API**（gemini-3.8-flash / gemini-3.5-flash-lite）、**Gemini Enterprise Agent Platform**（デモモード） |
-| 任意 | **Firebase**（Authentication） |
-| その他の Google Cloud | Model Armor、Cloud KMS、Pub/Sub、Firestore、Cloud Trace、Cloud Logging、Cloud Build、Artifact Registry |
-| フロントエンド | Next.js 16（App Router・Cache Components）、Tailwind CSS v4、motion |
-| バックエンド | Python 3.12、FastAPI、google-genai |
+| クラウド | Google Cloud プロジェクト（課金を有効化） |
+| Firebase | 同じプロジェクトに追加し、Authentication の「Google」「メール/パスワード」を有効化、Web アプリを登録 |
+| リージョン | `asia-northeast1`（Cloud Run・Firestore・Pub/Sub・Cloud KMS）、`us`（Model Armor：日本語を含む多言語の検出のため）、`global`（Gemini） |
+| 開発ツール | gcloud CLI、Python 3.12 ＋ uv 0.12、Node.js 24 ＋ npm、bash（Windows では Git Bash） |
+
+### 利用する Google Cloud サービス
+
+| サービス | 用途 |
+|---|---|
+| Cloud Run | `dashboard`（公開）・`target`（公開）・`agent`（非公開）の3サービスを実行 |
+| Cloud Build / Artifact Registry | ソースからのコンテナのビルドと保管 |
+| Pub/Sub | WAF の検知イベントを AI チームへ届ける（push・OIDC 認証・デッドレター付き） |
+| Firestore（Native） | インシデント・実況・ブロックリスト・承認・監査ログ・利用回数（TTL で自動削除） |
+| Cloud KMS | 利用者の Gemini APIキーの暗号化（90日ごとに自動ローテーション） |
+| Model Armor | 攻撃文のプロンプトインジェクション検査、報告書の機密情報検査 |
+| Gemini Enterprise Agent Platform | デモモードの Gemini 呼び出し（サービスアカウント認証） |
+| Gemini API | BYOK モードの Gemini 呼び出し（利用者の APIキー） |
+| Firebase Authentication | ログイン（Google・メール/パスワード） |
+| Cloud Trace / Cloud Logging | トレースと構造化ログ |
+
+### AI モデル
+
+| 役割 | モデル | 選んだ理由 |
+|---|---|---|
+| シラベ（解析） | `gemini-3.5-flash-lite` | 範囲の決まった分類なので、速さを優先（判定は約1.2秒） |
+| マモル（防御） | `gemini-3.5-flash-lite` | 安全ルールはコードで強制しているため、速さを優先 |
+| ツタエ（報告） | `gemini-3.8-flash` | 防御のあとに動くので、文章の質を優先 |
+
+### 主要ライブラリ（バージョンは固定）
+
+| 対象 | ライブラリ |
+|---|---|
+| AI チーム（`services/agent`） | Python 3.12、google-adk 2.11.0、google-genai 2.29.0、google-cloud-modelarmor 0.7.2、google-cloud-kms 3.18.0、google-cloud-firestore 2.34.1、FastAPI 0.141.1、OpenTelemetry 1.42.1 |
+| デモショップ＋WAF（`services/target`） | Python 3.12、FastAPI 0.143.0、google-cloud-pubsub 2.42.0、google-cloud-firestore 2.34.1、google-auth 2.61.0 |
+| ダッシュボード（`apps/dashboard`） | Next.js 16.4.0（App Router・Cache Components）、React 19.3.0、Tailwind CSS v4、firebase 13.0.0、firebase-admin 14.5.0、@google-cloud/kms 6.2.1、google-auth-library 11.2.0、motion 14.1.0 |
+
+### サービスアカウントと権限（最小権限）
+
+| アカウント | 主な権限 | 持たない権限 |
+|---|---|---|
+| `sa-dashboard` | Firestore、KMS の**暗号化のみ** | KMS の復号 |
+| `sa-target` | Firestore、Pub/Sub への送信 | KMS |
+| `sa-agent` | Firestore、KMS の**復号のみ**、Model Armor の利用、Agent Platform の利用 | KMS の暗号化 |
+| `sa-pubsub-push` | `agent` の起動のみ | — |
+| `sa-build` | Cloud Run のビルド | — |
+
+### 環境変数
+
+| サービス | 変数 | 内容 |
+|---|---|---|
+| target | `PROJECT_ID`、`EVENTS_TOPIC`、`SIM_AUDIENCE` | プロジェクト、通知先のトピック、擬似IPを受け付けるIDトークンの宛先 |
+| agent | `PROJECT_ID`、`REGION`、`ENABLE_CLOUD_TRACE`、`ARMOR_LOCATION` | プロジェクト、リージョン、トレースの有効化、Model Armor の場所 |
+| agent（任意） | `MODEL_ANALYST`、`MODEL_DEFENDER`、`MODEL_REPORTER` | 役割ごとのモデルの上書き |
+| agent（任意） | `DEMO_DAILY_LIMIT_PER_TENANT`（10）、`DEMO_DAILY_LIMIT_GLOBAL`（300）、`BYOK_DAILY_LIMIT_PER_TENANT`（200）、`RUN_TIMEOUT_SEC`（90） | 1日の利用回数の上限、AI の制限時間 |
+| dashboard | `PROJECT_ID`、`TARGET_URL`、`KMS_KEY` | プロジェクト、デモサイトの URL、暗号化に使う鍵 |
+| dashboard | `FIREBASE_API_KEY`、`FIREBASE_AUTH_DOMAIN`、`FIREBASE_PROJECT_ID`、`FIREBASE_APP_ID`、`FIREBASE_MESSAGING_SENDER_ID` | Firebase の Web 設定（公開前提の値。実行時に `/api/config` から配信） |
+
+### 性能・運用の目安（クラウド上の実測）
+
+| 項目 | 値 |
+|---|---|
+| 初動遮断（WAF のルール判定） | 約0.1ms |
+| 検知から AI のブロック完了まで | 約3〜5秒 |
+| 1件の対応全体（報告書まで） | 約7〜8秒 |
+| 1件あたりの AI コスト | 約0.3〜0.5円 |
+| 待機 | 各サービス最低1台（最初のアクセスでも待たせない） |
+| 同時処理 | agent は1台あたり10件、最大3台まで自動で増える |
+| 失敗への備え | 混雑（429）や一時的なエラーは間隔をあけて最大4回まで再試行。それでもだめならルールで自動ブロック |
 
 ## リポジトリ構成
 
