@@ -26,6 +26,8 @@ export default function DashboardPage() {
   const approvals = usePendingApprovals().data;
   const usage = useUsageToday();
   const live = tenant?.status === "responding";
+  // First defensive action (Mamoru's block/watch, or the rule fallback): the defense time stops here.
+  const defendedAt = steps.find((s) => s.kind === "action")?.at ?? null;
 
   // Sound cues on status transitions (not on first load).
   const previous = useRef<string | undefined>(undefined);
@@ -43,7 +45,7 @@ export default function DashboardPage() {
       <ApprovalBanner approvals={approvals} />
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
-          <StatusHero tenant={tenant} incident={incident} siteUrl={siteUrl} />
+          <StatusHero tenant={tenant} incident={incident} siteUrl={siteUrl} defendedAt={defendedAt} />
           <TeamPanel moods={moodsFor(incident, steps, live)} />
           <LiveFeed incident={incident} steps={steps} live={live} />
           {incident && <ReportCard markdown={incident.report?.markdown} pending={incident.status === "analyzing"} />}

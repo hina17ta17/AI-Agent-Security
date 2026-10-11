@@ -15,6 +15,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { useSession } from "./auth-context";
+import { serverNow } from "./clock";
 import type { Approval, AuditEntry, BlockEntry, Incident, Step, Tenant, Usage } from "./types";
 
 type Live<T> = { data: T; loading: boolean; error: string | null };
@@ -97,7 +98,7 @@ export function useAudit(incidentId: string) {
 }
 
 function todayJst(): string {
-  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date()).replaceAll("-", "");
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(serverNow())).replaceAll("-", "");
 }
 
 export function useUsageToday(): Usage | null {
@@ -106,11 +107,11 @@ export function useUsageToday(): Usage | null {
   return useLiveDoc<Usage>(`usage/${uid}/${day}`, () => doc(db, "tenants", uid, "usage", day)).data;
 }
 
-/** Re-renders every `ms` so countdowns and "n秒前" stay fresh. */
+/** Server-aligned "now", re-rendered every `ms` so countdowns and "n秒前" stay fresh. */
 export function useNow(ms = 1000): number {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => serverNow());
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), ms);
+    const t = setInterval(() => setNow(serverNow()), ms);
     return () => clearInterval(t);
   }, [ms]);
   return now;

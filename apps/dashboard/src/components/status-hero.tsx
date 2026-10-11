@@ -1,6 +1,7 @@
 "use client";
 
 import { ExternalLink, ShieldAlert, ShieldCheck, ShieldEllipsis, Wrench } from "lucide-react";
+import type { Timestamp } from "firebase/firestore";
 import { motion } from "motion/react";
 
 import { remaining, seconds, toDate } from "@/lib/format";
@@ -18,8 +19,14 @@ const COPY: Record<Mode, { title: string; sub: string; ring: string; glow: strin
   maintenance: { title: "メンテナンス中", sub: "承認により、デモサイトを一時停止しています", ring: "bg-warn", glow: "from-warn/30", text: "text-amber-600" },
 };
 
-export function StatusHero({ tenant, incident, siteUrl }: { tenant: Tenant | null; incident: Incident | null; siteUrl: string }) {
-  const now = useNow(500);
+export function StatusHero({ tenant, incident, siteUrl, defendedAt }: {
+  tenant: Tenant | null;
+  incident: Incident | null;
+  siteUrl: string;
+  /** Server time of the first defensive action (block/watch) of the active incident, if done. */
+  defendedAt?: Timestamp | null;
+}) {
+  const now = useNow(200);
   const maintenanceUntil = toDate(tenant?.maintenanceUntil);
   const inMaintenance = tenant?.siteMode === "maintenance" && (!maintenanceUntil || maintenanceUntil.getTime() > now);
   const mode: Mode =
@@ -28,8 +35,13 @@ export function StatusHero({ tenant, incident, siteUrl }: { tenant: Tenant | nul
     : inMaintenance ? "maintenance"
     : "safe";
   const c = COPY[mode];
+  // Both timestamps come from server clocks; `now` is server-aligned (see lib/clock.ts).
   const received = toDate(incident?.timings?.receivedAt);
-  const elapsed = mode === "responding" && received ? Math.max(0, (now - received.getTime()) / 1000) : null;
+  const defended = toDate(defendedAt);
+  const defendSec = mode === "responding" && received && defended
+    ? Math.max(0, (defended.getTime() - received.getTime()) / 1000) : null;
+  const elapsed = mode === "responding" && received && defendSec === null
+    ? Math.max(0, (now - received.getTime()) / 1000) : null;
   const Icon = mode === "responding" ? ShieldAlert : mode === "awaiting" ? ShieldEllipsis : mode === "maintenance" ? Wrench : ShieldCheck;
 
   return (
@@ -75,6 +87,14 @@ export function StatusHero({ tenant, incident, siteUrl }: { tenant: Tenant | nul
               <span className="rounded-full bg-danger/10 px-3 py-1 font-mono text-sm font-bold text-rose-600 tabular-nums">
                 経過 {seconds(elapsed)} 秒
               </span>
+            )}
+            {defendSec !== null && (
+              <>
+                <span className="inline-flex items-center gap-1 rounded-full bg-safe/15 px-3 py-1 font-mono text-sm font-bold text-emerald-700 tabular-nums">
+                  <ShieldCheck size={14} /> 防御完了 {seconds(defendSec)} 秒
+                </span>
+                <span className="text-xs text-muted">ツタエが報告書を作成中…</span>
+              </>
             )}
             {mode === "maintenance" && (
               <span className="rounded-full bg-warn/15 px-3 py-1 text-sm font-semibold text-amber-700">

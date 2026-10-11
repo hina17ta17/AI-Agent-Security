@@ -8,5 +8,6 @@ import { handle, json } from "@/lib/server/http";
 // handler to request time, and that signal must not be caught as an error.
 export async function GET() {
   await connection();
-  return handle("config", async () => json({ firebase: env.firebase() }));
+  // `now` lets the browser correct for a wrong PC clock when showing elapsed seconds.
+  return handle("config", async () => json({ firebase: env.firebase(), now: Date.now() }));
 }
