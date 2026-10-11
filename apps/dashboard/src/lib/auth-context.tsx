@@ -18,7 +18,7 @@ type Session =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "signedOut" }
-  | { status: "signedIn"; user: User; db: Firestore; siteUrl: string; ingestUrl: string };
+  | { status: "signedIn"; user: User; db: Firestore; ingestUrl: string };
 
 type AuthApi = {
   session: Session;
@@ -86,8 +86,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         unsubscribe = onAuthStateChanged(auth, async (user) => {
           if (!user) return setSession({ status: "signedOut" });
           try {
-            const { siteUrl, ingestUrl } = await callApi<{ siteUrl: string; ingestUrl: string }>(user, "/api/tenant");
-            setSession({ status: "signedIn", user, db, siteUrl, ingestUrl });
+            const { ingestUrl } = await callApi<{ ingestUrl: string }>(user, "/api/tenant");
+            setSession({ status: "signedIn", user, db, ingestUrl });
           } catch (error) {
             setSession({ status: "error", message: authErrorMessage(error) });
           }

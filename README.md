@@ -32,10 +32,17 @@ AgentGuard は、ふだんは軽量な WAF「ミハリ」が静かに見張り�
 
 攻撃を検知してから **AI がブロックを完了するまで約3〜5秒**（クラウド上・待機インスタンスあり）、1件あたりの AI コストは **約0.3〜0.5円** です。すべての数字はダッシュボード上に実測値として表示されます。
 
+## 守る対象
+
+- **自分のサイトを登録して守ります**（1アカウント1つまで）。登録時に**所有確認**（指定ファイルの設置、または DNS の TXT レコード）を行い、本人のサイトだけを登録できます。
+- サイトに小さな**ミドルウェア（Node.js / Python）を組み込む**と、各リクエストが取り込み口（`/ingest`）でミハリの検査を受け、攻撃は AI チームへ引き継がれ、ブロックの判断がサイトに返ります。AgentGuard から相手のサイトへ通信を送ることはありません。
+- **アカウントの保護**：ログイン履歴、いつもと違う端末からのログイン警告、すべての端末からのログアウト。
+- **攻撃シミュレーター**は、本物のサイトには送りません。**見本の攻撃イベント**を取り込み口に流し、AI チームの動きを確認できます（攻撃元IPは RFC 5737 の文書用アドレス）。
+
 ## 主な機能
 
 - **ライブ実況**：AI チーム5人（キャラクター）の動きと発言が、Firestore 経由でリアルタイムに流れます
-- **攻撃シミュレーター**：SQLインジェクション／XSS／パストラバーサル／**AIをだます攻撃**／OSコマンド実行（重大）を、自分専用のデモサイトに送れます。**同時攻撃（5件）・大量攻撃（30件）**のボタンで、複数の攻撃が一度に来たときの動きも試せます
+- **攻撃シミュレーター**：SQLインジェクション／XSS／パストラバーサル／**AIをだます攻撃**／OSコマンド実行（重大）の見本イベントを取り込み口に流せます。**同時攻撃（5件）・大量攻撃（30件）**のボタンで、複数の攻撃が一度に来たときの動きも試せます
 - **同時に複数の攻撃にも対応**：AI チームは複数のインシデントを並行して調査し、画面はタブで切り替えられます。さらに大量の攻撃は「**攻撃の波**」としてまとめ、AI を待たずにルールで即ブロックします（[詳しく](#同時に複数の攻撃が来たとき)）
 - **人の承認（Human-in-the-loop）**：サイトの一時停止のような重大な操作は、AI が「依頼」するだけで、人が承認するまで実行されません
 - **BYOK（自分の Gemini APIキーで動かす）**：キーは Cloud KMS で暗号化して保存し、画面には末尾4文字しか出しません。**開発者も中身を見られません**
@@ -88,7 +95,8 @@ START → 番人（コード：Model Armor） → シラベ（LLM：構造化判
 - **BYOK の鍵管理**：ダッシュボードは**暗号化だけ**、AI サービスは**復号だけ**ができる権限構成。暗号文はテナントに結びつけ（AAD = `tenant:{uid}`）、他人の暗号文を流用できない。キーは実行ごとの専用クライアントでのみ使い、ログ・DB・AI の会話記録には入れない
 - **最小権限**：サービスごとに専用のサービスアカウント（`sa-dashboard` / `sa-target` / `sa-agent` / `sa-pubsub-push` / `sa-build`）。AI サービスは非公開で、Pub/Sub の push 用アカウントからしか起動できない
 - **データの分離**：Firestore のセキュリティルールで、利用者は自分のデータを「読むだけ」。書き込みはすべてサーバー経由で、暗号化したキーにはどこからもアクセスできない
-- **攻撃シミュレーターの安全性**：送り先は自分専用のデモサイトだけ。攻撃元IPは文書用に予約されたアドレス（RFC 5737）で、ダッシュボードの署名付きIDトークンがあるときだけ信用する
+- **攻撃シミュレーターの安全性**：本物のサイトには一切送らず、見本イベントを自分のテナントの取り込み口に流すだけ。攻撃元IPは文書用に予約されたアドレス（RFC 5737）で、ダッシュボードの署名付きIDトークンがあるときだけ信用する
+- **サイト登録の安全性**：登録には所有確認が必要。所有確認でサイトのファイルを取りに行く処理は、https のみ・公開ドメインのみ・解決先IPがすべて公開アドレスのときだけ・リダイレクト禁止・短いタイムアウトで、内部ネットワークを突く攻撃（SSRF）を防ぐ。1つのドメインは1アカウントしか登録できない
 - **開発者もキーを見られない**：開発・運用に使うアカウントは KMS・APIキー・請求情報に触れない権限で運用しています（[infra/bootstrap.ps1](infra/bootstrap.ps1)）
 
 ## 可観測性
@@ -137,7 +145,7 @@ START → 番人（コード：Model Armor） → シラベ（LLM：構造化判
 | 対象 | ライブラリ |
 |---|---|
 | AI チーム（`services/agent`） | Python 3.12、google-adk 2.11.0、google-genai 2.29.0、google-cloud-modelarmor 0.7.2、google-cloud-kms 3.18.0、google-cloud-firestore 2.34.1、FastAPI 0.141.1、OpenTelemetry 1.42.1 |
-| デモショップ＋WAF（`services/target`） | Python 3.12、FastAPI 0.143.0、google-cloud-pubsub 2.42.0、google-cloud-firestore 2.34.1、google-auth 2.61.0 |
+| 取り込み口＋WAF（`services/target`） | Python 3.12、FastAPI 0.143.0、google-cloud-pubsub 2.42.0、google-cloud-firestore 2.34.1、google-auth 2.61.0 |
 | ダッシュボード（`apps/dashboard`） | Next.js 16.4.0（App Router・Cache Components）、React 19.3.0、Tailwind CSS v4、firebase 13.0.0、firebase-admin 14.5.0、@google-cloud/kms 6.2.1、google-auth-library 11.2.0、motion 14.1.0 |
 
 ### サービスアカウントと権限（最小権限）
@@ -159,7 +167,7 @@ START → 番人（コード：Model Armor） → シラベ（LLM：構造化判
 | agent（任意） | `MODEL_ANALYST`、`MODEL_DEFENDER`、`MODEL_REPORTER` | 役割ごとのモデルの上書き |
 | agent（任意） | `DEMO_DAILY_LIMIT_PER_TENANT`（10）、`DEMO_DAILY_LIMIT_GLOBAL`（300）、`BYOK_DAILY_LIMIT_PER_TENANT`（200）、`RUN_TIMEOUT_SEC`（90） | 1日の利用回数の上限、AI の制限時間 |
 | agent（任意） | `MAX_CONCURRENT_AI_PER_TENANT`（3）、`ACTIVE_STALE_SEC`（300）、`WAVE_IDLE_SEC`（60） | AI の同時調査の上限、止まった調査を無視するまでの秒数、攻撃の波が終息するまでの秒数 |
-| dashboard | `PROJECT_ID`、`TARGET_URL`、`KMS_KEY` | プロジェクト、デモサイトの URL、暗号化に使う鍵 |
+| dashboard | `PROJECT_ID`、`TARGET_URL`、`KMS_KEY` | プロジェクト、取り込み口の URL、暗号化に使う鍵 |
 | dashboard | `FIREBASE_API_KEY`、`FIREBASE_AUTH_DOMAIN`、`FIREBASE_PROJECT_ID`、`FIREBASE_APP_ID`、`FIREBASE_MESSAGING_SENDER_ID` | Firebase の Web 設定（公開前提の値。実行時に `/api/config` から配信） |
 
 ### 性能・運用の目安（クラウド上の実測）
@@ -180,7 +188,7 @@ START → 番人（コード：Model Armor） → シラベ（LLM：構造化判
 
 ```
 apps/dashboard/     Next.js のダッシュボード（画面と API）
-services/target/    デモショップ「ひだまり雑貨店」＋ WAF「ミハリ」（FastAPI）
+services/target/    取り込み口（/ingest）＋ WAF「ミハリ」（FastAPI）
 services/agent/     AI チーム（ADK Workflow、Model Armor、KMS、Firestore、Cloud Trace）
 infra/              初期設定・クラウド部品・デプロイのスクリプト、Firestore ルール
 docs/               設計書、構成図
@@ -211,13 +219,14 @@ cd services/agent && uv run pytest
 
 ## デモのためのモック・制約
 
-- 攻撃はデモ用のシミュレーターから送ります。攻撃元IPは文書用のアドレス範囲を擬似的に付けています
-- 守る対象は自前のデモサイトで、アプリ層のブロックリストで防いでいます。Cloudflare や Cloud Armor との連携は、道具を1つ追加すれば対応できる設計です
+- 動作確認は攻撃シミュレーターの見本イベントで行います。攻撃元IPは文書用のアドレス範囲（RFC 5737）を擬似的に付けています
+- サイトの保護は、サイトに組み込んだミドルウェアが取り込み口へ各リクエストを送り、返ってきた判断を適用する方式です。ブロックはアプリ層で行います。Cloudflare や Cloud Armor との連携は、反映先を1つ追加すれば対応できる設計です
 - WAF のルールは主要な攻撃パターンの正規表現による簡易版です（OWASP CRS 相当ではありません）
 
 ## 今後の展望
 
-- 実在のサイトから攻撃イベントを受け取る窓口（API・SDK）
+- 主要フレームワーク向けの公式ミドルウェア（SDK）の配布
 - Cloud Armor / Cloudflare へのブロックの反映
+- 振る舞いベースの検知（ログインの総当たり、偵察、短時間の大量アクセス）
 - 同じ攻撃者の行動を横断して分析する、並列の解析エージェント
 - 通知（メール・Slack）と、週次のセキュリティレポート

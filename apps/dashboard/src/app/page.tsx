@@ -56,7 +56,7 @@ function LoginCard() {
   return (
     <div className="w-full max-w-sm rounded-card border border-line bg-white/90 p-6 shadow-lift backdrop-blur">
       <h2 className="font-display text-lg font-bold">はじめる</h2>
-      <p className="mt-1 text-xs text-muted">ログインすると、あなた専用のデモサイトとダッシュボードが用意されます。</p>
+      <p className="mt-1 text-xs text-muted">ログインすると、あなた専用のダッシュボードが用意されます。</p>
       <Button variant="ghost" className="mt-4 w-full" onClick={() => run(signInWithGoogle)} disabled={busy}>
         <GoogleMark /> Google でログイン
       </Button>

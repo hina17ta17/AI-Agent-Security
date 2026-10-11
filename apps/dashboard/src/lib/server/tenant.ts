@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
@@ -6,7 +5,6 @@ import { db } from "./admin";
 import { HttpError } from "./http";
 
 export type TenantDoc = {
-  siteId: string;
   siteMode: "normal" | "maintenance";
   aiMode: "demo" | "byok";
   keyStatus: "none" | "valid" | "invalid";
@@ -16,13 +14,6 @@ export type TenantDoc = {
   settings?: { allowlist?: string[] };
 };
 
-const SITE_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
-
-function newSiteId(): string {
-  // 14 chars from 36 symbols (~72 bits): not guessable, matches the target's ^[a-z0-9]{8,32}$
-  return Array.from(randomBytes(14), (b) => SITE_ALPHABET[b % SITE_ALPHABET.length]).join("");
-}
-
 export const tenantRef = (uid: string) => db().collection("tenants").doc(uid);
 
 export async function ensureTenant(uid: string): Promise<TenantDoc> {
@@ -30,10 +21,8 @@ export async function ensureTenant(uid: string): Promise<TenantDoc> {
   return db().runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const existing = snap.data() as TenantDoc | undefined;
-    if (existing?.siteId) return existing;
-    const siteId = newSiteId();
+    if (existing?.aiMode) return existing;
     const fresh: TenantDoc = {
-      siteId,
       siteMode: "normal",
       aiMode: "demo",
       keyStatus: "none",
@@ -42,7 +31,6 @@ export async function ensureTenant(uid: string): Promise<TenantDoc> {
       settings: { allowlist: [] },
     };
     tx.set(ref, { ...fresh, createdAt: FieldValue.serverTimestamp() }, { merge: true });
-    tx.set(db().collection("sites").doc(siteId), { tenantId: uid, createdAt: FieldValue.serverTimestamp() });
     return fresh;
   });
 }

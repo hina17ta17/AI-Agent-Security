@@ -14,7 +14,6 @@ import { StatusHero } from "@/components/status-hero";
 import { moodsFor, TeamPanel } from "@/components/team-panel";
 import { WaveCard } from "@/components/wave-card";
 import { concurrentIncidents, liveStatus, waveVisible } from "@/lib/activity";
-import { useSession } from "@/lib/auth-context";
 import {
   useBlocklist,
   useCampaign,
@@ -29,7 +28,6 @@ import {
 import { chime } from "@/lib/sound";
 
 export default function DashboardPage() {
-  const { siteUrl } = useSession();
   const tenant = useTenant().data;
   const incidents = useIncidents(20).data;
   const now = useNow(5000); // only for staleness (minutes), so a slow tick is enough
@@ -65,7 +63,7 @@ export default function DashboardPage() {
       <ApprovalBanner approvals={approvals} />
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="min-w-0 space-y-5 lg:col-span-2">
-          <StatusHero tenant={tenant} incident={incident} siteUrl={siteUrl} defendedAt={defendedAt} />
+          <StatusHero tenant={tenant} incident={incident} defendedAt={defendedAt} />
           {waveVisible(wave, now) && <WaveCard wave={wave} />}
           {tabs.length >= 2 && (
             <IncidentTabs

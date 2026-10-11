@@ -17,13 +17,12 @@ const COPY: Record<Mode, { title: string; sub: string; ring: string; glow: strin
   safe: { title: "平常運転中", sub: "ミハリが静かに見張っています", ring: "bg-safe", glow: "from-safe/25", text: "text-emerald-600" },
   responding: { title: "迎撃中！", sub: "AIチームが出動しています", ring: "bg-danger", glow: "from-danger/25", text: "text-rose-600" },
   awaiting: { title: "あなたの判断を待っています", sub: "AIチームから承認の依頼が届いています", ring: "bg-warn", glow: "from-warn/30", text: "text-amber-600" },
-  maintenance: { title: "メンテナンス中", sub: "承認により、デモサイトを一時停止しています", ring: "bg-warn", glow: "from-warn/30", text: "text-amber-600" },
+  maintenance: { title: "メンテナンス中", sub: "承認により、サイトを一時停止しています", ring: "bg-warn", glow: "from-warn/30", text: "text-amber-600" },
 };
 
-export function StatusHero({ tenant, incident, siteUrl, defendedAt }: {
+export function StatusHero({ tenant, incident, defendedAt }: {
   tenant: Tenant | null;
   incident: Incident | null;
-  siteUrl: string;
   /** Server time of the first defensive action (block/watch) of the active incident, if done. */
   defendedAt?: Timestamp | null;
 }) {
@@ -111,14 +110,23 @@ export function StatusHero({ tenant, incident, siteUrl, defendedAt }: {
                 解除まで {remaining(maintenanceUntil, now)}
               </span>
             )}
-            <a
-              href={siteUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold text-brand hover:bg-brand/5"
-            >
-              守っているデモサイトを開く <ExternalLink size={14} />
-            </a>
+            {tenant?.site?.status === "verified" ? (
+              <a
+                href={tenant.site.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold text-brand hover:bg-brand/5"
+              >
+                守っているサイトを開く <ExternalLink size={14} />
+              </a>
+            ) : (
+              <a
+                href="/app/settings"
+                className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold text-brand hover:bg-brand/5"
+              >
+                守るサイトを登録する <ExternalLink size={14} />
+              </a>
+            )}
           </div>
         </div>
       </div>

@@ -4,7 +4,6 @@ import type { Timestamp } from "firebase/firestore";
 export type TenantStatus = "safe" | "responding" | "awaiting_approval";
 
 export type Tenant = {
-  siteId: string;
   siteMode: "normal" | "maintenance";
   maintenanceUntil?: Timestamp;
   aiMode: "demo" | "byok";

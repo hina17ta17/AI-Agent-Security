@@ -10,7 +10,6 @@ from typing import Any
 
 from google.cloud import firestore
 
-SITE_ID_RE = re.compile(r"^[a-z0-9]{8,32}$")
 _HEX64 = re.compile(r"^[a-f0-9]{64}$")
 
 
@@ -46,20 +45,8 @@ class _TTLCache:
 class Store:
     def __init__(self, db: firestore.AsyncClient):
         self.db = db
-        self._sites = _TTLCache()
         self._tenants = _TTLCache()
         self._keys = _TTLCache()
-
-    async def tenant_for_site(self, site_id: str) -> str | None:
-        if not SITE_ID_RE.match(site_id):
-            return None
-        found, tenant_id = self._sites.get(site_id)
-        if found:
-            return tenant_id
-        snap = await self.db.collection("sites").document(site_id).get()
-        tenant_id = (snap.to_dict() or {}).get("tenantId") if snap.exists else None
-        self._sites.put(site_id, tenant_id, ttl=300 if tenant_id else 30)
-        return tenant_id
 
     async def tenant_for_ingest_key(self, key_hash: str) -> tuple[str | None, str | None]:
         """Map a hashed ingest key to (tenantId, host). Cached briefly; only the hash is ever stored."""
@@ -71,7 +58,7 @@ class Store:
         snap = await self.db.collection("ingestKeys").document(key_hash).get()
         data = snap.to_dict() if snap.exists else None
         value = (data.get("tenantId"), data.get("host")) if data else (None, None)
-        self._keys.put(key_hash, value, ttl=300 if value[0] else 30)
+        self._keys.put(key_hash, value, ttl=60 if value[0] else 30)  # a removed site's key stops within a minute
         return value
 
     async def tenant_state(self, tenant_id: str) -> TenantState:

@@ -24,15 +24,17 @@
                  ┌──────────────── Firebase Authentication（Googleログイン / メール）
                  ▼
 [ダッシュボード Next.js / Cloud Run: dashboard]
+   │  ├ ログイン保護（ログイン履歴・新しい端末の警告・すべての端末からログアウト）
+   │  ├ サイト登録（所有確認つき・1アカウント1つ）と取り込みキーの発行
    │  ├ APIキー登録（KMSで暗号化のみ可能）
-   │  ├ 攻撃シミュレータ（自分のデモサイトだけに送る）
+   │  ├ 攻撃シミュレータ（本物のサイトには送らず、見本イベントを取り込み口へ）
    │  └ 承認ボタン（人の承認が必要な操作）
    │          ▲ Firestore onSnapshot でリアルタイム表示
    ▼          │
-[守られる側のデモサイト + 軽量WAF / Cloud Run: target]
-   │ 不正リクエストはその場で403（数ミリ秒）。ブロックリストも参照
-   │ 検知したら Pub/Sub へイベントを送る
-   ▼
+[あなたのサイト] ─ミドルウェア─▶ [取り込み口 /ingest + 軽量WAF ミハリ / Cloud Run: target]
+                                   │ 各リクエストを検査し allow / block を返す（数ミリ秒）。ブロックリストも参照
+                                   │ 攻撃なら Pub/Sub へイベントを送る
+                                   ▼
 [Pub/Sub: security-events] ──push（OIDC認証）──▶ [AIエージェント ADK / Cloud Run: agent]
                                                   ├ ① 前処理（コード）：切り詰め・無害化
                                                   ├ ② Model Armor：攻撃文にAI向けの罠がないか検査
@@ -133,11 +135,13 @@
 ## 6. マルチテナント・認証
 
 - Firebase Authentication（Googleログイン＋審査員用のメール/パスワード）。テナント = `uid`
-- 各テナントに推測しにくい `siteId` を払い出し、デモサイトは `target/s/{siteId}/...` にする
-- Firestore セキュリティルール：クライアントは自分のテナントのデータを**読むだけ**。書き込みはすべてサーバー経由。`tenantSecrets` にはクライアントから一切アクセスさせない
-- **攻撃シミュレータは自分のデモサイトにしか送れない**（任意のURLを攻撃できる機能は作らない）
+- **ログイン保護**：本当のログイン（ページの再読み込みではない）ごとに `tenants/{uid}/logins` へ記録（日時・IPの末尾を伏せたネットワーク・ブラウザとOS・方法）。IPを丸ごと保存することはない。初めての端末なら全画面に警告。「すべての端末からログアウト」は `sessionsValidAfter` を書き、それより前のログインはAPIとFirestoreルールの両方で拒否する
+- **守るサイトの登録**（1アカウント1つ）：所有確認（`/.well-known/agentguard-verify.txt` か DNS の `_agentguard.<host>` TXT）に通ったら、取り込みキーを1回だけ表示して発行（保存はハッシュのみ）。1つのドメインは1アカウントしか登録できない（`siteClaims/{host}`）。登録の取り消し・やり直しで古いキーは無効になる
+- 所有確認でサイトを取りに行く処理は SSRF 対策をする：https のみ、公開ドメインのみ、解決先のIPがすべて公開アドレスのときだけ、リダイレクト禁止、5秒のタイムアウト、1KBまで
+- Firestore セキュリティルール：クライアントは自分のテナントのデータを**読むだけ**。書き込みはすべてサーバー経由。`tenantSecrets`・`ingestKeys`・`siteClaims` にはクライアントから一切アクセスさせない
+- **攻撃シミュレータは本物のサイトには送らない**：見本の攻撃イベントを自分のテナントの取り込み口に流すだけ（任意のURLを攻撃できる機能は作らない）
 - 擬似的な攻撃元IPには、文書用に予約されたアドレス範囲（`203.0.113.0/24`、`198.51.100.0/24`）を使う。実在する人を誤ってブロックしないため
-  - target は、dashboard のサービスアカウントの ID トークンが付いたリクエストに限り、擬似IPヘッダ（`X-Demo-Source-IP`）を信用する
+  - 取り込み口は、dashboard のサービスアカウントの ID トークンが付いたときだけ「見本イベント」として受け付け、それ以外のIPは文書用アドレスに置き換える
 - 乱用対策：同じIP・同じ種類の攻撃は1つのインシデントにまとめる。すでにブロック済みのIPはAIを呼ばない。テナントごとにAIの起動回数の上限を設ける
 
 ## 7. ガバナンス・セキュリティ（大会テーマの中心）
@@ -148,7 +152,7 @@
    - 検知したら「**AIをだまそうとする攻撃も検知**」として画面に出す（デモの見せ場。攻撃ボタンも用意する）
 2. **AIは守りを固める方向にしか動けない**：ブロック解除や設定を緩める操作はAIのツールに入れない（人だけができる）
 3. **ツール側でも強制チェック**：IPの形式、自分の許可リストは除外、ブロック時間は最大24時間、テナントはサーバー側の状態から取る
-4. **重大な操作は人の承認制**：`request_isolation`（デモサイトをメンテナンスモードにする）は承認待ちとしてFirestoreに積み、ダッシュボードで承認されたらサーバーが実行する
+4. **重大な操作は人の承認制**：`request_isolation`（守っているサイトをメンテナンスモードにする。サイトのミドルウェアには 503 相当の判断が返る）は承認待ちとしてFirestoreに積み、ダッシュボードで承認されたらサーバーが実行する
    - ADK の `require_confirmation` も使えるが、セッションの永続化が必要になるので今回は使わない
 5. **監査ログ**：AI・人のすべての操作を `audit` に記録する（誰が、何を、なぜ、結果）
 6. **最小権限**：サービスごとに専用のサービスアカウントを用意する（§10）
@@ -165,7 +169,9 @@
 
 ```
 tenants/{uid}
-  siteId, aiMode: "byok"|"demo", keyHint: "a1B2", keyStatus: "none"|"valid"|"invalid", keyUpdatedAt
+  aiMode: "byok"|"demo", keyHint: "a1B2", keyStatus: "none"|"valid"|"invalid", keyUpdatedAt
+  site: { url, host, status: "pending"|"verified", token, verifiedAt }, ingestKeyHint
+  security: { lastNewDeviceAt, lastNewDevice, acknowledgedAt }, sessionsValidAfter
   status: "safe"|"responding"|"awaiting_approval", statusAt, activeIncidentId
   active: { incidentId: startedAt }   ← いま動いている AI の調査（最大3件）
   campaignId                          ← 最新の「攻撃の波」
@@ -188,7 +194,9 @@ tenants/{uid}/blocklist/{ip}      reason, incidentId, createdAt, expiresAt（TTL
 tenants/{uid}/approvals/{id}      action, params, status: pending|approved|rejected, requestedBy, decidedAt
 tenants/{uid}/audit/{id}          actor, action, params, result, at
 tenantSecrets/{uid}               ciphertext, kmsKeyVersion, createdAt   ← クライアントは一切アクセス不可
-sites/{siteId}                    tenantId
+ingestKeys/{sha256(key)}          tenantId, host   ← 取り込みキーのハッシュ（クライアントは一切アクセス不可）
+siteClaims/{host}                 tenantId         ← 1つのドメインは1アカウントだけ
+tenants/{uid}/logins/{id}         at, ipPrefix, device, method, newDevice
 usage/{uid}_{yyyymmdd}            incidents, tokens
 ```
 
@@ -258,7 +266,7 @@ usage/{uid}_{yyyymmdd}            incidents, tokens
 ## 12. 提出時に明記するモック・制約
 
 - 攻撃はデモ用シミュレータから送る。攻撃元IPは文書用アドレス範囲を擬似的に付与している
-- 防御の対象は自前のデモサイトで、アプリ層のブロックリストで防いでいる。Cloudflare や Cloud Armor との連携は拡張案（ツール1つの追加で対応できる設計）
+- 防御の対象は登録したサイトで、サイトに組み込んだミドルウェアが取り込み口の判断を適用する（アプリ層のブロック）。Cloudflare や Cloud Armor との連携は拡張案（ツール1つの追加で対応できる設計）
 - WAFのルールは簡易版（主要な攻撃パターンの正規表現）。OWASP CRS 相当ではない
 
 ## 13. スケジュール

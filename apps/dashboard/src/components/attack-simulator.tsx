@@ -98,7 +98,7 @@ export function AttackSimulator() {
   return (
     <Card>
       <CardHeader title="攻撃シミュレーター" icon={<Bomb size={16} className="text-danger" />}
-                  sub="あなた専用のデモサイトにだけ送られます（攻撃元IPはデモ用の擬似アドレス）" />
+                  sub="見本の攻撃イベントを AgentGuard に送ります（本物のサイトには送りません・擬似IP）" />
       <div className="grid grid-cols-1 gap-2 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-1">
         {BUTTONS.map(button)}
       </div>

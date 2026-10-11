@@ -16,6 +16,7 @@ import { audit, tenantRef } from "@/lib/server/tenant";
 
 const token = () => `agentguard-site-verify=${randomBytes(16).toString("hex")}`;
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
+const ingestKeysOf = (uid: string) => db().collection("ingestKeys").where("tenantId", "==", uid);
 
 /** Register a site to protect, verify its ownership, or remove it. One site per account. */
 export async function POST(request: Request) {
@@ -29,7 +30,18 @@ export async function POST(request: Request) {
         url, host, status: "pending" as const, token: token(),
         registeredAt: FieldValue.serverTimestamp(),
       };
-      await tenantRef(uid).set({ site }, { merge: true });
+      // Registering starts over (one site per account): release the previous site and its key.
+      const previous = (await tenantRef(uid).get()).get("site") as { host?: string } | undefined;
+      const keys = await ingestKeysOf(uid).get();
+      const batch = db().batch();
+      if (previous?.host) {
+        const claim = await db().collection("siteClaims").doc(previous.host).get();
+        if (claim.exists && claim.get("tenantId") === uid) batch.delete(claim.ref);
+      }
+      keys.docs.forEach((d) => batch.delete(d.ref));
+      // update() replaces the whole site map, so no field of the previous site lingers.
+      batch.update(tenantRef(uid), { site, ingestKeyHint: FieldValue.delete() });
+      await batch.commit();
       await audit(uid, "register_site", { host }, { status: "pending_verification" });
       return json({
         site: { url, host, status: "pending", token: site.token },
@@ -55,9 +67,11 @@ export async function POST(request: Request) {
       const ingestKey = `ag_${randomBytes(24).toString("base64url")}`;
       await db().runTransaction(async (tx) => {
         const claim = await tx.get(claimRef);
+        const oldKeys = await tx.get(ingestKeysOf(uid));
         if (claim.exists && claim.get("tenantId") !== uid) {
           throw new HttpError(409, "このドメインは、別のアカウントですでに登録されています。");
         }
+        oldKeys.docs.forEach((d) => tx.delete(d.ref)); // a new key replaces any earlier one
         tx.set(claimRef, { tenantId: uid, host: site.host, claimedAt: FieldValue.serverTimestamp() });
         tx.set(db().collection("ingestKeys").doc(hash(ingestKey)),
           { tenantId: uid, host: site.host, createdAt: FieldValue.serverTimestamp() });
@@ -75,8 +89,10 @@ export async function POST(request: Request) {
     if (body.action === "remove") {
       const snap = await tenantRef(uid).get();
       const site = snap.get("site") as { host?: string } | undefined;
+      const keys = await ingestKeysOf(uid).get();
       const batch = db().batch();
       if (site?.host) batch.delete(db().collection("siteClaims").doc(site.host));
+      keys.docs.forEach((d) => batch.delete(d.ref)); // the site's ingest key stops working
       batch.set(tenantRef(uid), { site: FieldValue.delete(), ingestKeyHint: FieldValue.delete() }, { merge: true });
       await batch.commit();
       await audit(uid, "remove_site", { host: site?.host ?? null }, { status: "removed" });
