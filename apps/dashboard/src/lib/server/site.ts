@@ -84,37 +84,50 @@ async function assertPublicHost(host: string): Promise<void> {
   }
 }
 
-/** Fetch the well-known file and check it contains the token. */
-export async function verifyByFile(host: string, token: string): Promise<boolean> {
+/** Why a check failed, so the owner knows what to fix. */
+export type CheckResult =
+  | { ok: true }
+  | { ok: false; reason: "unreachable" | "not_found" | "redirect" | "mismatch" | "no_record";
+      status?: number; location?: string };
+
+/** Fetch the well-known file and check it contains the token. Redirects are reported, never followed. */
+export async function checkFile(host: string, token: string): Promise<CheckResult> {
   await assertPublicHost(host);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(`https://${host}${WELL_KNOWN}`, {
       method: "GET",
-      redirect: "error", // a redirect could point back at an internal address
+      redirect: "manual", // a redirect could point back at an internal address: report it instead
       signal: controller.signal,
       headers: { "user-agent": "AgentGuard-SiteVerify/1.0", accept: "text/plain" },
       cache: "no-store",
     });
-    if (!res.ok) return false;
+    if (res.status >= 300 && res.status < 400) {
+      return { ok: false, reason: "redirect", status: res.status,
+               location: (res.headers.get("location") ?? "").slice(0, 200) || undefined };
+    }
+    if (!res.ok) return { ok: false, reason: "not_found", status: res.status };
     const text = (await res.text()).slice(0, MAX_BODY);
-    return text.includes(token);
+    return text.includes(token) ? { ok: true } : { ok: false, reason: "mismatch" };
   } catch {
-    return false;
+    return { ok: false, reason: "unreachable" };
   } finally {
     clearTimeout(timer);
   }
 }
 
 /** Check a DNS TXT record at _agentguard.<host> contains the token. */
-export async function verifyByDns(host: string, token: string): Promise<boolean> {
+export async function checkDns(host: string, token: string): Promise<CheckResult> {
+  let records: string[][];
   try {
-    const records = await resolveTxt(`${TXT_PREFIX}.${host}`);
-    return records.some((chunks) => chunks.join("").includes(token));
+    records = await resolveTxt(`${TXT_PREFIX}.${host}`);
   } catch {
-    return false;
+    return { ok: false, reason: "no_record" }; // not added yet, or not propagated
   }
+  return records.some((chunks) => chunks.join("").includes(token))
+    ? { ok: true }
+    : { ok: false, reason: records.length ? "mismatch" : "no_record" };
 }
 
 export const verifyFilePath = WELL_KNOWN;

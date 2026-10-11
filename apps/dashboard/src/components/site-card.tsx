@@ -1,31 +1,15 @@
 "use client";
 
-import { Check, Copy, Globe, ShieldCheck, Trash2 } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { Globe, ShieldCheck, Trash2 } from "lucide-react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/lib/auth-context";
 import { useTenant } from "@/lib/hooks";
 import type { ProtectedSite } from "@/lib/types";
 
+import { CopyField } from "./copy-field";
+import { VerifyWizard } from "./site-verify";
 import { Badge, Button, Card, CardHeader, cx } from "./ui";
-
-function CopyField({ value, mono = true }: { value: string; mono?: boolean }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex items-stretch gap-2">
-      <code className={cx("min-w-0 flex-1 overflow-x-auto rounded-xl border border-line bg-slate-50 px-3 py-2 text-xs", mono && "font-mono")}>
-        {value}
-      </code>
-      <button
-        type="button"
-        onClick={() => { navigator.clipboard?.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
-        className="shrink-0 rounded-xl border border-line bg-white px-3 text-xs font-semibold text-brand hover:bg-brand/5"
-      >
-        {copied ? <Check size={14} /> : <Copy size={14} />}
-      </button>
-    </div>
-  );
-}
 
 function snippet(lang: "node" | "python", ingestUrl: string): string {
   if (lang === "node") {
@@ -117,106 +101,15 @@ function RegisterForm() {
   );
 }
 
-function VerifyPanel({ site, onVerified }: { site: ProtectedSite; onVerified: (key: string) => void }) {
-  const { api } = useSession();
-  const [busy, setBusy] = useState<"verify" | "remove" | null>(null);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-
-  async function verify() {
-    setBusy("verify");
-    setMessage(null);
-    try {
-      const r = await api<{ verified: boolean; message?: string; ingestKey?: string }>("/api/site", { body: { action: "verify" } });
-      if (r.verified && r.ingestKey) onVerified(r.ingestKey);
-      setMessage(r.verified
-        ? { ok: true, text: "所有を確認しました。" }
-        : { ok: false, text: r.message ?? "確認できませんでした。" });
-    } catch (e) {
-      setMessage({ ok: false, text: e instanceof Error ? e.message : "確認できませんでした" });
-    } finally {
-      setBusy(null);
-    }
-  }
-  async function remove() {
-    if (!window.confirm("登録を取り消しますか？")) return;
-    setBusy("remove");
-    try { await api("/api/site", { body: { action: "remove" } }); }
-    finally { setBusy(null); }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-sm font-bold">{site.host}</span>
-        <Badge tone="warn">所有確認まち</Badge>
-      </div>
-      <p className="text-sm text-muted">
-        他人のサイトを勝手に登録できないよう、<b className="text-ink">このサイトの持ち主だけができる作業</b>で本人確認をします。
-        次の3ステップで終わります。
-      </p>
-
-      <div className="rounded-2xl border border-line p-3">
-        <p className="text-xs font-bold text-ink">ステップ1：合言葉（トークン）をコピーする</p>
-        <div className="mt-2"><CopyField value={site.token ?? ""} /></div>
-      </div>
-
-      <div className="rounded-2xl border border-line p-3">
-        <p className="text-xs font-bold text-ink">ステップ2：次の <span className="text-brand">AかBのどちらか1つ</span> をする</p>
-
-        <div className="mt-2 rounded-xl bg-brand/5 p-3">
-          <p className="text-xs font-bold text-ink">A. ファイルを置く（おすすめ・かんたん）</p>
-          <ol className="mt-1 list-decimal space-y-1 pl-5 text-xs text-muted">
-            <li>サイトの公開フォルダに <code className="font-mono text-ink">.well-known</code> というフォルダを作る</li>
-            <li>その中に <code className="font-mono text-ink">agentguard-verify.txt</code> というファイルを作り、コピーした合言葉を1行だけ貼り付けて保存する</li>
-            <li>サイトを公開（デプロイ）し直す</li>
-            <li>
-              ブラウザで{" "}
-              <a href={`${site.url}/.well-known/agentguard-verify.txt`} target="_blank" rel="noreferrer"
-                 className="break-all font-mono text-brand hover:underline">{site.url}/.well-known/agentguard-verify.txt</a>{" "}
-              を開き、合言葉が表示されればOK
-            </li>
-          </ol>
-          <p className="mt-2 text-[11px] text-muted">
-            公開フォルダの例：Next.js は <code className="font-mono">public/</code>、Express は <code className="font-mono">express.static()</code> で公開しているフォルダ、
-            FastAPI は <code className="font-mono">StaticFiles</code> で公開しているフォルダ
-          </p>
-        </div>
-
-        <div className="mt-2 rounded-xl border border-line p-3">
-          <p className="text-xs font-bold text-ink">B. DNS に記録を足す（独自ドメインを持っていて、ファイルを置きにくい人向け）</p>
-          <p className="mt-1 text-xs text-muted">ドメインの管理画面（お名前.com・Cloudflare など）で、次のレコードを追加します。</p>
-          <table className="mt-2 w-full text-xs">
-            <tbody className="divide-y divide-line">
-              <tr><td className="w-28 py-1 text-muted">種類</td><td className="py-1 font-mono text-ink">TXT</td></tr>
-              <tr><td className="py-1 text-muted">名前（ホスト）</td><td className="py-1 font-mono text-ink break-all">_agentguard.{site.host}</td></tr>
-              <tr><td className="py-1 text-muted">値</td><td className="py-1 text-ink">ステップ1でコピーした合言葉</td></tr>
-            </tbody>
-          </table>
-          <p className="mt-2 text-[11px] text-muted">
-            管理画面によっては、名前にドメイン部分を含めず <code className="font-mono">_agentguard</code>（サブドメインがあれば <code className="font-mono">_agentguard.サブドメイン</code>）と入力します。
-            反映まで数分〜数時間かかることがあります。
-          </p>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-line p-3">
-        <p className="text-xs font-bold text-ink">ステップ3：「確認する」を押す</p>
-        <p className="mt-1 text-xs text-muted">AgentGuard が合言葉を読みに行き、一致すれば登録が完了して「取り込みキー」が表示されます。</p>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Button disabled={busy !== null} onClick={verify}>{busy === "verify" ? "確認中…" : "確認する"}</Button>
-        <Button variant="ghost" disabled={busy !== null} onClick={remove}><Trash2 size={14} /> やめる</Button>
-      </div>
-      {message && <p className={cx("text-sm", message.ok ? "text-emerald-600" : "text-rose-600")} role="status">{message.text}</p>}
-    </div>
-  );
-}
-
 function VerifiedPanel({ site, keyHint, freshKey }: { site: ProtectedSite; keyHint?: string; freshKey: string | null }) {
   const { api, ingestUrl } = useSession();
   const [lang, setLang] = useState<"node" | "python">("node");
   const [busy, setBusy] = useState(false);
+  const keyBox = useRef<HTMLDivElement>(null);
+  // Right after verification, take the owner straight to the one-time key (the next thing to do).
+  useEffect(() => {
+    if (freshKey) keyBox.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [freshKey]);
 
   async function remove() {
     if (!window.confirm(`${site.host} の保護をやめますか？取り込みキーは無効になります。`)) return;
@@ -233,10 +126,10 @@ function VerifiedPanel({ site, keyHint, freshKey }: { site: ProtectedSite; keyHi
       </div>
 
       {freshKey ? (
-        <div className="rounded-2xl border border-warn/40 bg-warn/10 p-3">
-          <p className="text-xs font-bold text-amber-700">取り込みキー（この画面を離れると二度と表示されません）</p>
-          <p className="mt-1 text-xs text-muted">サイトの環境変数 <code className="font-mono">AGENTGUARD_INGEST_KEY</code> に設定してください。</p>
-          <div className="mt-2"><CopyField value={freshKey} /></div>
+        <div ref={keyBox} className="rounded-2xl border border-warn/40 bg-warn/10 p-3">
+          <p className="text-xs font-bold text-amber-700">所有を確認しました。次は取り込みキーを設定します（この画面を離れると二度と表示されません）</p>
+          <p className="mt-1 text-xs text-muted">サイトの環境変数 <code className="font-mono">AGENTGUARD_INGEST_KEY</code> に設定し、下の組み込みコードをサイトに入れてください。</p>
+          <div className="mt-2"><CopyField value={freshKey} label="取り込みキー" /></div>
         </div>
       ) : (
         <p className="text-xs text-muted">取り込みキー：<code className="font-mono">ag_…{keyHint}</code>（再発行は「別のサイトに変更」から）</p>
@@ -280,7 +173,7 @@ export function SiteCard() {
         {!site ? (
           <RegisterForm />
         ) : site.status === "pending" ? (
-          <VerifyPanel site={site} onVerified={setFreshKey} />
+          <VerifyWizard site={site} onVerified={setFreshKey} />
         ) : (
           <VerifiedPanel site={site} keyHint={tenant?.ingestKeyHint} freshKey={freshKey} />
         )}

@@ -6,9 +6,10 @@ import { db } from "@/lib/server/admin";
 import { requireUser } from "@/lib/server/auth";
 import { handle, HttpError, json, log, readJson } from "@/lib/server/http";
 import {
+  type CheckResult,
+  checkDns,
+  checkFile,
   normalizeSiteUrl,
-  verifyByDns,
-  verifyByFile,
   verifyFilePath,
   verifyTxtName,
 } from "@/lib/server/site";
@@ -18,11 +19,39 @@ const token = () => `agentguard-site-verify=${randomBytes(16).toString("hex")}`;
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 const ingestKeysOf = (uid: string) => db().collection("ingestKeys").where("tenantId", "==", uid);
 
+/** What to fix, in the owner's words. */
+function failureMessage(r: Exclude<CheckResult, { ok: true }>, url: string): string {
+  switch (r.reason) {
+    case "unreachable":
+      return "サイトに接続できませんでした。URLが正しいか、サイトが公開されているかを確認してください。";
+    case "not_found":
+      return `ファイルが見つかりませんでした（${url}${verifyFilePath} の応答：${r.status}）。置き場所とファイル名、サイトを公開し直したかを確認してください。`;
+    case "redirect":
+      return `このURLは別の場所へ転送（リダイレクト）されています${r.location ? `（転送先：${r.location}）` : ""}。転送先のURLで登録し直してください。`;
+    case "mismatch":
+      return "見つかりましたが、合言葉が一致しません。画面に表示されている最新の合言葉を貼り直してください。";
+    case "no_record":
+      return "DNSの記録がまだ見つかりません。追加した直後は、反映まで数分〜数時間かかることがあります。";
+  }
+}
+
+const WINDOW_MS = 60_000;
+const MAX_CHECKS = 10;
+const recent = new Map<string, number[]>(); // per-instance limit on ownership checks
+
+function rateLimit(uid: string) {
+  const now = Date.now();
+  const hits = (recent.get(uid) ?? []).filter((t) => now - t < WINDOW_MS);
+  if (hits.length >= MAX_CHECKS) throw new HttpError(429, "確認の回数が多すぎます。1分ほど待ってからもう一度お試しください。");
+  hits.push(now);
+  recent.set(uid, hits);
+}
+
 /** Register a site to protect, verify its ownership, or remove it. One site per account. */
 export async function POST(request: Request) {
   return handle("site", async () => {
     const { uid } = await requireUser(request);
-    const body = await readJson<{ action?: string; url?: string }>(request);
+    const body = await readJson<{ action?: string; url?: string; method?: string }>(request);
 
     if (body.action === "register") {
       const { url, host } = normalizeSiteUrl(body.url);
@@ -50,16 +79,15 @@ export async function POST(request: Request) {
     }
 
     if (body.action === "verify") {
+      rateLimit(uid); // each check makes one request to the registered site
       const snap = await tenantRef(uid).get();
       const site = snap.get("site") as { host?: string; token?: string; status?: string; url?: string } | undefined;
       if (!site?.host || !site.token) throw new HttpError(400, "先にサイトを登録してください");
 
-      const ok = (await verifyByFile(site.host, site.token)) || (await verifyByDns(site.host, site.token));
-      if (!ok) {
-        return json({
-          verified: false,
-          message: "確認できませんでした。ファイルかDNSの設定を確認し、数分おいてからもう一度お試しください。",
-        });
+      const method = body.method === "dns" ? "dns" : "file";
+      const result = method === "dns" ? await checkDns(site.host, site.token) : await checkFile(site.host, site.token);
+      if (!result.ok) {
+        return json({ verified: false, method, reason: result.reason, message: failureMessage(result, site.url ?? "") });
       }
 
       // One host can be claimed by only one account.
@@ -80,7 +108,7 @@ export async function POST(request: Request) {
           ingestKeyHint: ingestKey.slice(-4),
         }, { merge: true });
       });
-      await audit(uid, "verify_site", { host: site.host }, { status: "verified" });
+      await audit(uid, "verify_site", { host: site.host, method }, { status: "verified" });
       log("INFO", "site verified", { host: site.host });
       // The ingest key is returned once and never stored in plaintext.
       return json({ verified: true, ingestKey });
