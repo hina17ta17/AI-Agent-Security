@@ -125,7 +125,8 @@ export async function POST(request: Request) {
       await audit(uid, "verify_site", { host: site.host, path: site.path ?? "", method }, { status: "verified" });
       log("INFO", "site verified", { host: site.host });
       // The ingest key is returned once and never stored in plaintext.
-      return json({ verified: true, ingestKey });
+      // "public": the token is still visible on the site and can now be removed.
+      return json({ verified: true, ingestKey, mode: method === "dns" ? "dns" : (result.mode ?? "public") });
     }
 
     if (body.action === "remove") {

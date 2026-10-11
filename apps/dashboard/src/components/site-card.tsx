@@ -108,7 +108,9 @@ function RegisterForm() {
   );
 }
 
-function VerifiedPanel({ site, keyHint, freshKey }: { site: ProtectedSite; keyHint?: string; freshKey: string | null }) {
+function VerifiedPanel({ site, keyHint, freshKey, freshMode }: {
+  site: ProtectedSite; keyHint?: string; freshKey: string | null; freshMode: "private" | "public" | "dns" | null;
+}) {
   const { api, ingestUrl } = useSession();
   const [lang, setLang] = useState<"node" | "python">("node");
   const [busy, setBusy] = useState(false);
@@ -145,7 +147,10 @@ function VerifiedPanel({ site, keyHint, freshKey }: { site: ProtectedSite; keyHi
           <div className="mt-2"><CopyField value={freshKey} label="取り込みキー" /></div>
           <ul className="mt-2 list-disc space-y-0.5 pl-5 text-[11px] text-muted">
             <li><b className="text-ink">取り込みキーは秘密です。</b>HTML・公開リポジトリ・ブラウザで動くコードには書かず、サーバーの環境変数にだけ置いてください。</li>
-            <li>所有確認に使った合言葉のファイルは、もう消しても大丈夫です（公開されていても悪用はできません）。</li>
+            {freshMode === "public" && (
+              <li><b className="text-ink">合言葉のファイルは今も外から見える状態です。</b>確認は済んだので、もう消してください（悪用はできませんが、AgentGuard を使っていることが分かってしまいます）。</li>
+            )}
+            {freshMode === "private" && <li>合言葉は外に出さずに確認できました。確認用のコードと環境変数は、そのまま残しても消しても構いません。</li>}
           </ul>
         </div>
       ) : (
@@ -181,6 +186,7 @@ export function SiteCard() {
   // The ingest key is returned once by verify; held here (SiteCard stays mounted across the
   // pending -> verified transition) and shown until the owner reloads.
   const [freshKey, setFreshKey] = useState<string | null>(null);
+  const [freshMode, setFreshMode] = useState<"private" | "public" | "dns" | null>(null);
 
   return (
     <Card>
@@ -190,9 +196,9 @@ export function SiteCard() {
         {!site ? (
           <RegisterForm />
         ) : site.status === "pending" ? (
-          <VerifyWizard site={site} onVerified={setFreshKey} />
+          <VerifyWizard site={site} onVerified={(key, mode) => { setFreshKey(key); setFreshMode(mode); }} />
         ) : (
-          <VerifiedPanel site={site} keyHint={tenant?.ingestKeyHint} freshKey={freshKey} />
+          <VerifiedPanel site={site} keyHint={tenant?.ingestKeyHint} freshKey={freshKey} freshMode={freshMode} />
         )}
         <div className="mt-4 flex items-start gap-2 text-xs text-muted">
           <ShieldCheck size={14} className="mt-0.5 shrink-0 text-safe" />

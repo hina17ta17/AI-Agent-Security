@@ -140,10 +140,6 @@ export default function Home() {
             </div>
           ))}
         </section>
-
-        <footer className="pb-6 text-center text-xs text-muted">
-          AgentGuard ・ 第5回 Agentic AI Hackathon with Google Cloud 提出作品 ・ Gemini / ADK / Cloud Run / Model Armor
-        </footer>
       </div>
     </main>
   );

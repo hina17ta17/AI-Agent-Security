@@ -150,17 +150,41 @@ function Nav({ step, last, onBack, onNext, nextLabel }: {
   );
 }
 
-function routeSnippet(fw: "express" | "fastapi", token: string): string {
-  if (fw === "express") {
-    return `// AgentGuard の所有確認用（確認が済んだら消しても大丈夫です）
-app.get("${FILE_PATH}", (req, res) => res.type("text/plain").send("${token}"));`;
+/**
+ * Code for sites that run on a server: answer AgentGuard's challenge with HMAC-SHA256(token, challenge).
+ * The token lives only in the environment variable, so it never appears on the site or in the code.
+ */
+function privateSnippet(fw: "next" | "express" | "fastapi", basePath: string): string {
+  const route = `${basePath}${FILE_PATH}`;
+  if (fw === "next") {
+    return `// ファイルの場所：app${route}/route.ts（src を使っている場合は src/app${route}/route.ts）
+// AgentGuard の所有確認。合言葉は環境変数 AGENTGUARD_VERIFY_TOKEN に置き、外には出しません。
+import { createHmac } from "node:crypto";
+
+export function GET(request: Request) {
+  const challenge = new URL(request.url).searchParams.get("challenge") ?? "";
+  const answer = createHmac("sha256", process.env.AGENTGUARD_VERIFY_TOKEN ?? "").update(challenge).digest("hex");
+  return new Response(answer, { headers: { "content-type": "text/plain" } });
+}`;
   }
-  return `# AgentGuard の所有確認用（確認が済んだら消しても大丈夫です）
+  if (fw === "express") {
+    return `// AgentGuard の所有確認。合言葉は環境変数 AGENTGUARD_VERIFY_TOKEN に置き、外には出しません。
+const { createHmac } = require("node:crypto");
+
+app.get("${route}", (req, res) => {
+  const challenge = String(req.query.challenge || "");
+  const answer = createHmac("sha256", process.env.AGENTGUARD_VERIFY_TOKEN || "").update(challenge).digest("hex");
+  res.type("text/plain").send(answer);
+});`;
+  }
+  return `# AgentGuard の所有確認。合言葉は環境変数 AGENTGUARD_VERIFY_TOKEN に置き、外には出しません。
+import hashlib, hmac, os
 from fastapi.responses import PlainTextResponse
 
-@app.get("${FILE_PATH}", response_class=PlainTextResponse)
-def agentguard_verify():
-    return "${token}"`;
+@app.get("${route}", response_class=PlainTextResponse)
+def agentguard_verify(challenge: str = ""):
+    key = os.environ.get("AGENTGUARD_VERIFY_TOKEN", "").encode()
+    return hmac.new(key, challenge.encode(), hashlib.sha256).hexdigest()`;
 }
 
 function FilePlace({ site, framework, setFramework }: {
@@ -174,9 +198,7 @@ function FilePlace({ site, framework, setFramework }: {
   async function pick() {
     const r = await placeInFolder(token, github);
     if (r.status === "done") {
-      const hint = framework === "next" && r.folder !== "public"
-        ? `（選んだのは「${r.folder}」フォルダです。Next.js では public フォルダを選んでください）` : "";
-      setPlaced(`「${r.folder}」フォルダに .well-known/agentguard-verify.txt${github ? " と .nojekyll" : ""} を作りました${hint}`);
+      setPlaced(`「${r.folder}」フォルダに .well-known/agentguard-verify.txt${github ? " と .nojekyll" : ""} を作りました`);
     } else if (r.status === "unsupported") {
       setPlaced("このブラウザではフォルダに直接置けません。下の「ファイルをダウンロード」を使ってください（Chrome / Edge なら直接置けます）。");
     } else if (r.status === "error") {
@@ -199,13 +221,21 @@ function FilePlace({ site, framework, setFramework }: {
         </div>
       </div>
 
-      {framework === "express" || framework === "fastapi" ? (
-        <div className="space-y-2">
-          <p className="text-xs text-muted">
-            {framework === "express" ? "Express" : "FastAPI"} では、ファイルを置く代わりに<b className="text-ink">次の数行をアプリに追加</b>するのが確実です
-            {framework === "express" && "（Express は初期設定のままだと「.」で始まるフォルダを公開しないため）"}。合言葉は入った状態です。
+      {framework === "next" || framework === "express" || framework === "fastapi" ? (
+        <div className="space-y-3">
+          <p className="rounded-xl bg-safe/10 px-3 py-2 text-xs text-emerald-800">
+            <b>合言葉を外に見せない方法</b>です。合言葉はサイトの環境変数にだけ置き、AgentGuard には毎回ちがう「問題」への答えだけを返します。
+            答えから合言葉を知ることはできないので、誰かがこのURLを開いても合言葉は分かりません。
           </p>
-          <CopyField value={routeSnippet(framework, token)} label="追加するコード" />
+          <div>
+            <p className="mb-1 text-xs font-bold text-ink">(1) サイトの環境変数 <code className="font-mono">AGENTGUARD_VERIFY_TOKEN</code> に、次の合言葉を設定する</p>
+            <CopyField value={token} label="合言葉" />
+            <p className="mt-1 text-[11px] text-muted">Cloud Run なら「新しいリビジョンの編集とデプロイ → 変数とシークレット」、ローカルなら .env ファイルに書きます（.env は公開リポジトリに入れないでください）。</p>
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-bold text-ink">(2) 次のコードをアプリに追加する</p>
+            <CopyField value={privateSnippet(framework, site.path ?? "")} label="追加するコード" />
+          </div>
         </div>
       ) : (
         <div className="space-y-2">
@@ -223,12 +253,14 @@ function FilePlace({ site, framework, setFramework }: {
             </div>
           ) : (
             <p className="text-xs text-muted">
-              {framework === "next"
-                ? <>プロジェクトの <code className="font-mono text-ink">public</code> フォルダの中に置きます。</>
-                : <>サイトの公開フォルダ（index.html がある場所）の中に置きます。</>}
-              置く場所：<code className="font-mono text-ink">{framework === "next" ? "public" : "公開フォルダ"}/.well-known/agentguard-verify.txt</code>
+              サイトの公開フォルダ（index.html がある場所）の中に置きます。
+              置く場所：<code className="font-mono text-ink">公開フォルダ/.well-known/agentguard-verify.txt</code>
             </p>
           )}
+          <p className="rounded-xl bg-slate-100 px-3 py-2 text-[11px] text-muted">
+            HTMLだけのサイトはプログラムを動かせないため、この方法では合言葉が外から見えます。合言葉が見えても悪用はできませんが、
+            気になる場合は、<b className="text-ink">確認が済んだらすぐにファイルを消して</b>ください（AgentGuard は後から確認し直しません）。
+          </p>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={pick}>
               <FolderOpen size={14} /> {github ? "リポジトリのフォルダを選んで自動で置く" : "フォルダを選んで自動で置く"}
@@ -286,7 +318,9 @@ function DnsAdd({ site }: { site: ProtectedSite }) {
   );
 }
 
-export function VerifyWizard({ site, onVerified }: { site: ProtectedSite; onVerified: (key: string) => void }) {
+export function VerifyWizard({ site, onVerified }: {
+  site: ProtectedSite; onVerified: (key: string, mode: "private" | "public" | "dns") => void;
+}) {
   const { api } = useSession();
   const [state, setState] = useState<Saved>(() => load(site.url, site.host));
   const [busy, setBusy] = useState<"verify" | "remove" | "edit" | null>(null);
@@ -311,11 +345,11 @@ export function VerifyWizard({ site, onVerified }: { site: ProtectedSite; onVeri
     setBusy("verify");
     setResult(null);
     try {
-      const r = await api<{ verified: boolean; message?: string; reason?: string; ingestKey?: string }>(
+      const r = await api<{ verified: boolean; message?: string; reason?: string; ingestKey?: string; mode?: "private" | "public" | "dns" }>(
         "/api/site", { body: { action: "verify", method } });
       if (r.verified && r.ingestKey) {
         save(site.url, { ...state, step: { file: 0, dns: 0 } });
-        onVerified(r.ingestKey);
+        onVerified(r.ingestKey, r.mode ?? "public");
       }
       setResult(r.verified ? { ok: true, text: "所有を確認しました。" } : { ok: false, text: r.message ?? "確認できませんでした。", reason: r.reason });
     } catch (e) {
@@ -404,7 +438,11 @@ export function VerifyWizard({ site, onVerified }: { site: ProtectedSite; onVeri
           {method === "file" && step === 1 && (
             <div className="space-y-2 text-sm">
               <p className="text-muted">変更したサイトを、いつもの方法で<b className="text-ink">公開（デプロイ）し直して</b>ください。パソコンの中にあるだけでは、AgentGuard から見えません。</p>
-              <p className="text-muted">公開できたら、次のリンクを開いて合言葉が表示されるか確かめます。</p>
+              <p className="text-muted">
+                {["next", "express", "fastapi"].includes(state.framework)
+                  ? <>公開できたら、次のリンクを開きます。<b className="text-ink">英数字64文字の答え</b>が表示されればOKです（合言葉そのものは表示されません）。</>
+                  : <>公開できたら、次のリンクを開いて合言葉が表示されるか確かめます。</>}
+              </p>
               <a href={fileUrl} target="_blank" rel="noreferrer"
                  className="inline-flex items-center gap-1.5 break-all rounded-xl border border-line bg-white px-3 py-2 font-mono text-xs text-brand hover:bg-brand/5">
                 {fileUrl} <ExternalLink size={12} className="shrink-0" />

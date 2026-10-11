@@ -1,3 +1,4 @@
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { resolveTxt } from "node:dns/promises";
 import { isIP } from "node:net";
@@ -10,6 +11,12 @@ import { HttpError } from "./http";
  * only https, only public hostnames, every resolved IP must be public, no redirects, and a short
  * timeout with a tiny body cap. (The attack simulator never sends real traffic to a registered
  * site, so registration alone can neither reach nor harm a site you do not control.)
+ *
+ * Two ways to answer the check at <base>/.well-known/agentguard-verify.txt?challenge=<nonce>:
+ *  - private (sites that run code): return HMAC-SHA256(key = token, message = nonce) in hex. The
+ *    token stays in the site's environment and never appears publicly; each check uses a fresh
+ *    random nonce, and an answer to someone else's nonce reveals nothing about the token.
+ *  - public (static sites, e.g. GitHub Pages): a plain file containing the token.
  */
 
 const WELL_KNOWN = "/.well-known/agentguard-verify.txt";
@@ -116,18 +123,33 @@ async function assertPublicHost(host: string): Promise<void> {
 
 /** Why a check failed, so the owner knows what to fix. */
 export type CheckResult =
-  | { ok: true }
+  | { ok: true; mode?: "private" | "public" }
   | { ok: false; reason: "unreachable" | "not_found" | "redirect" | "mismatch" | "no_record";
       status?: number; location?: string };
 
-/** Fetch the well-known file and check it contains the token. Redirects are reported, never followed. */
-/** `path` is the site's base path ("" or "/repo"); the file lives under it. */
+/** The answer a site that keeps the token private gives to a challenge. */
+export function challengeAnswer(token: string, challenge: string): string {
+  return createHmac("sha256", token).update(challenge).digest("hex");
+}
+
+function sameText(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
+
+/**
+ * Ask <base>/.well-known/agentguard-verify.txt with a fresh challenge. Accepts the private answer
+ * (HMAC of the challenge) or the public token. Redirects are reported, never followed.
+ * `path` is the site's base path ("" or "/repo"); the file lives under it.
+ */
 export async function checkFile(host: string, path: string, token: string): Promise<CheckResult> {
   await assertPublicHost(host);
+  const challenge = randomBytes(16).toString("hex");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(`https://${host}${path}${WELL_KNOWN}`, {
+    const res = await fetch(`https://${host}${path}${WELL_KNOWN}?challenge=${challenge}`, {
       method: "GET",
       redirect: "manual", // a redirect could point back at an internal address: report it instead
       signal: controller.signal,
@@ -140,7 +162,8 @@ export async function checkFile(host: string, path: string, token: string): Prom
     }
     if (!res.ok) return { ok: false, reason: "not_found", status: res.status };
     const text = (await res.text()).slice(0, MAX_BODY);
-    return text.includes(token) ? { ok: true } : { ok: false, reason: "mismatch" };
+    if (sameText(text.trim(), challengeAnswer(token, challenge))) return { ok: true, mode: "private" };
+    return text.includes(token) ? { ok: true, mode: "public" } : { ok: false, reason: "mismatch" };
   } catch {
     return { ok: false, reason: "unreachable" };
   } finally {
