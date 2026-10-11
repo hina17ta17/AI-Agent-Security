@@ -74,7 +74,7 @@ export async function POST(request: Request) {
       const ips = distinctAttackerIps(kinds.length, await blockedIps(uid));
       if (ips.length === 0) throw new HttpError(409, "デモ用の攻撃元アドレスがすべてブロック中です。しばらくしてからお試しください。");
       const results = await Promise.all(
-        ips.map((ip, i) => sendAttack(tenant.siteId, kinds[i], ip).catch(() => null)),
+        ips.map((ip, i) => sendAttack(uid, kinds[i], ip).catch(() => null)),
       );
       await tenantRef(uid).set({ lastAttackerIp: ips.at(-1), lastAttackAt: FieldValue.serverTimestamp() }, { merge: true });
       return json(summarize(bulk, results));
@@ -88,7 +88,7 @@ export async function POST(request: Request) {
       ip = tenant.lastAttackerIp;
     } else ip = randomAttackerIp(attackKind);
 
-    const result = await sendAttack(tenant.siteId, attackKind, ip);
+    const result = await sendAttack(uid, attackKind, ip);
     if (attackKind !== "normal" && attackKind !== "revisit") {
       await tenantRef(uid).set({ lastAttackerIp: ip, lastAttackAt: FieldValue.serverTimestamp() }, { merge: true });
     }

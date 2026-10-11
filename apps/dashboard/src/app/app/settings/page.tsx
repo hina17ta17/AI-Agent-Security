@@ -3,6 +3,7 @@
 import { Cpu, ExternalLink, Globe, KeyRound, Lock, LogOut, ShieldCheck, Trash2, UserCheck, Wrench } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
+import { SiteCard } from "@/components/site-card";
 import { Badge, Button, Card, CardHeader, cx } from "@/components/ui";
 import { useAuth, useSession } from "@/lib/auth-context";
 import { dateTimeJst, remaining, toDate } from "@/lib/format";
@@ -165,26 +166,24 @@ function AllowlistEditor({ initial }: { initial: string }) {
   );
 }
 
-function SiteCard() {
-  const { api, siteUrl } = useSession();
+function MaintenanceCard() {
+  const { api } = useSession();
   const tenant = useTenant().data;
   const now = useNow(1000);
   const act = useAction();
   const until = toDate(tenant?.maintenanceUntil);
   const inMaintenance = tenant?.siteMode === "maintenance" && (!until || until.getTime() > now);
+  if (!inMaintenance) return null; // only while the site is paused by an approved isolation
   return (
     <Card>
-      <CardHeader title="守っているデモサイト" icon={<Wrench size={16} className="text-brand" />} sub="あなた専用の架空のお店「ひだまり雑貨店」" />
+      <CardHeader title="サイトの一時停止" icon={<Wrench size={16} className="text-warn" />} sub="承認により、サイトを停止中です" />
       <div className="p-5">
-        <a href={siteUrl} target="_blank" rel="noreferrer" className="break-all font-mono text-sm text-brand hover:underline">{siteUrl}</a>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          {inMaintenance ? <Badge tone="warn">メンテナンス中（{remaining(until, now)}）</Badge> : <Badge tone="safe">公開中</Badge>}
-          {inMaintenance && (
-            <Button variant="ghost" size="sm" disabled={act.busy}
-                    onClick={() => act.run(() => api("/api/site", { body: { action: "restore" } }), "メンテナンスを解除しました。")}>
-              メンテナンスを解除する
-            </Button>
-          )}
+        <div className="flex flex-wrap items-center gap-3">
+          <Badge tone="warn">メンテナンス中（{remaining(until, now)}）</Badge>
+          <Button variant="ghost" size="sm" disabled={act.busy}
+                  onClick={() => act.run(() => api("/api/site", { body: { action: "restore" } }), "メンテナンスを解除しました。")}>
+            メンテナンスを解除する
+          </Button>
         </div>
         <Note m={act.message} />
       </div>
@@ -247,11 +246,12 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <h1 className="font-display text-2xl font-bold">設定</h1>
+      <MaintenanceCard />
+      <SiteCard />
       <LoginSecurityCard />
       <ApiKeyCard />
       <ModeCard />
       <AllowlistCard />
-      <SiteCard />
     </div>
   );
 }

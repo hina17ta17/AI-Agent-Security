@@ -22,6 +22,19 @@ export type Tenant = {
   settings?: { allowlist?: string[] };
   /** Account protection: the latest sign-in from a device this account had not used before. */
   security?: { lastNewDeviceAt?: Timestamp; lastNewDevice?: string; acknowledgedAt?: Timestamp };
+  /** The site this account protects (one per account). */
+  site?: ProtectedSite;
+  /** Last 4 characters of the ingest key (the key itself is shown only once). */
+  ingestKeyHint?: string;
+};
+
+export type ProtectedSite = {
+  url: string;
+  host: string;
+  status: "pending" | "verified";
+  token?: string; // ownership token to place while pending
+  registeredAt?: Timestamp;
+  verifiedAt?: Timestamp;
 };
 
 /** One sign-in, as shown to the account owner (the network is truncated; no full IP is stored). */

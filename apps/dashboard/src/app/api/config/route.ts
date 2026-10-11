@@ -9,5 +9,5 @@ import { handle, json } from "@/lib/server/http";
 export async function GET() {
   await connection();
   // `now` lets the browser correct for a wrong PC clock when showing elapsed seconds.
-  return handle("config", async () => json({ firebase: env.firebase(), now: Date.now() }));
+  return handle("config", async () => json({ firebase: env.firebase(), now: Date.now(), ingestUrl: `${env.targetUrl()}/ingest` }));
 }

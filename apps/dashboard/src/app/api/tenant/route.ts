@@ -8,6 +8,10 @@ export async function POST(request: Request) {
   return handle("tenant", async () => {
     const { uid } = await requireUser(request);
     const tenant = await ensureTenant(uid);
-    return json({ siteId: tenant.siteId, siteUrl: `${env.targetUrl()}/s/${tenant.siteId}/` });
+    return json({
+      siteId: tenant.siteId,
+      siteUrl: `${env.targetUrl()}/s/${tenant.siteId}/`,
+      ingestUrl: `${env.targetUrl()}/ingest`,
+    });
   });
 }

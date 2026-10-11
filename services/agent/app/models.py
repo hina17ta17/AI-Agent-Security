@@ -22,7 +22,7 @@ class SecurityEvent(BaseModel):
     version: int = 1
     event_id: str = Field(alias="eventId", pattern=r"^[a-f0-9]{32}$")
     tenant_id: str = Field(alias="tenantId", min_length=1, max_length=128)
-    site_id: str = Field(alias="siteId", max_length=64)
+    site_id: str | None = Field(default=None, alias="siteId", max_length=64)  # None for external sites (ingest)
     received_at: datetime = Field(alias="receivedAt")
     waf_rule_ms: float = Field(alias="wafRuleMs", ge=0)
     rule_id: str = Field(alias="ruleId", max_length=64)
