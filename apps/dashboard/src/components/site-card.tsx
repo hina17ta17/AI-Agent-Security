@@ -8,7 +8,7 @@ import { useTenant } from "@/lib/hooks";
 import type { ProtectedSite } from "@/lib/types";
 
 import { CopyField } from "./copy-field";
-import { VerifyWizard } from "./site-verify";
+import { isGitHubPages, VerifyWizard } from "./site-verify";
 import { Badge, Button, Card, CardHeader, cx } from "./ui";
 
 function snippet(lang: "node" | "python", ingestUrl: string): string {
@@ -122,8 +122,14 @@ function VerifiedPanel({ site, keyHint, freshKey }: { site: ProtectedSite; keyHi
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <a href={site.url} target="_blank" rel="noreferrer" className="break-all font-mono text-sm text-brand hover:underline">{site.url}</a>
-        <Badge tone="safe">保護中</Badge>
+        <Badge tone="safe">登録済み</Badge>
       </div>
+      {isGitHubPages(site.host) && (
+        <p className="rounded-xl bg-warn/10 px-3 py-2 text-xs text-amber-800">
+          GitHub Pages は、サーバーで動くプログラムを置けないため、下の組み込みコードを動かせません。
+          所有確認は済んでいますが、攻撃を検査して守るには、Node.js や Python などサーバーで動くサイトが必要です。
+        </p>
+      )}
 
       {freshKey ? (
         <div ref={keyBox} className="rounded-2xl border border-warn/40 bg-warn/10 p-3">

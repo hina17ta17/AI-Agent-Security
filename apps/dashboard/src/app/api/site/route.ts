@@ -19,6 +19,18 @@ const token = () => `agentguard-site-verify=${randomBytes(16).toString("hex")}`;
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 const ingestKeysOf = (uid: string) => db().collection("ingestKeys").where("tenantId", "==", uid);
 
+type StoredSite = { url?: string; host?: string; path?: string; token?: string; status?: string };
+
+/** Firestore document id for a site: the host, plus the base path when there is one ("/" -> "|"). */
+const claimId = (host: string, path?: string) => (path ? `${host}${path}`.replaceAll("/", "|") : host);
+
+/** Drop this account's claim on a site (never another account's). */
+async function releaseClaim(batch: FirebaseFirestore.WriteBatch, uid: string, site: StoredSite) {
+  const ref = db().collection("siteClaims").doc(claimId(site.host!, site.path));
+  const claim = await ref.get();
+  if (claim.exists && claim.get("tenantId") === uid) batch.delete(ref);
+}
+
 /** What to fix, in the owner's words. */
 function failureMessage(r: Exclude<CheckResult, { ok: true }>, url: string): string {
   switch (r.reason) {
@@ -54,53 +66,55 @@ export async function POST(request: Request) {
     const body = await readJson<{ action?: string; url?: string; method?: string }>(request);
 
     if (body.action === "register") {
-      const { url, host } = normalizeSiteUrl(body.url);
+      const { url, host, path } = normalizeSiteUrl(body.url);
+      const previous = (await tenantRef(uid).get()).get("site") as StoredSite | undefined;
+      // Correcting the URL of a pending site on the same host keeps its token, so a file or DNS
+      // record already put in place with that token still works.
+      const keepToken = previous?.status === "pending" && previous.host === host && previous.token;
       const site = {
-        url, host, status: "pending" as const, token: token(),
+        url, host, path, status: "pending" as const, token: keepToken || token(),
         registeredAt: FieldValue.serverTimestamp(),
       };
       // Registering starts over (one site per account): release the previous site and its key.
-      const previous = (await tenantRef(uid).get()).get("site") as { host?: string } | undefined;
       const keys = await ingestKeysOf(uid).get();
       const batch = db().batch();
-      if (previous?.host) {
-        const claim = await db().collection("siteClaims").doc(previous.host).get();
-        if (claim.exists && claim.get("tenantId") === uid) batch.delete(claim.ref);
-      }
+      if (previous?.host) await releaseClaim(batch, uid, previous);
       keys.docs.forEach((d) => batch.delete(d.ref));
       // update() replaces the whole site map, so no field of the previous site lingers.
       batch.update(tenantRef(uid), { site, ingestKeyHint: FieldValue.delete() });
       await batch.commit();
-      await audit(uid, "register_site", { host }, { status: "pending_verification" });
+      await audit(uid, "register_site", { host, path }, { status: "pending_verification" });
       return json({
-        site: { url, host, status: "pending", token: site.token },
-        instructions: { filePath: verifyFilePath, txtName: `${verifyTxtName}.${host}` },
+        site: { url, host, path, status: "pending", token: site.token },
+        instructions: { filePath: `${path}${verifyFilePath}`, txtName: `${verifyTxtName}.${host}` },
       });
     }
 
     if (body.action === "verify") {
       rateLimit(uid); // each check makes one request to the registered site
       const snap = await tenantRef(uid).get();
-      const site = snap.get("site") as { host?: string; token?: string; status?: string; url?: string } | undefined;
+      const site = snap.get("site") as StoredSite | undefined;
       if (!site?.host || !site.token) throw new HttpError(400, "先にサイトを登録してください");
 
       const method = body.method === "dns" ? "dns" : "file";
-      const result = method === "dns" ? await checkDns(site.host, site.token) : await checkFile(site.host, site.token);
+      const result = method === "dns"
+        ? await checkDns(site.host, site.token)
+        : await checkFile(site.host, site.path ?? "", site.token);
       if (!result.ok) {
         return json({ verified: false, method, reason: result.reason, message: failureMessage(result, site.url ?? "") });
       }
 
-      // One host can be claimed by only one account.
-      const claimRef = db().collection("siteClaims").doc(site.host);
+      // One site (host + base path) can be claimed by only one account.
+      const claimRef = db().collection("siteClaims").doc(claimId(site.host, site.path));
       const ingestKey = `ag_${randomBytes(24).toString("base64url")}`;
       await db().runTransaction(async (tx) => {
         const claim = await tx.get(claimRef);
         const oldKeys = await tx.get(ingestKeysOf(uid));
         if (claim.exists && claim.get("tenantId") !== uid) {
-          throw new HttpError(409, "このドメインは、別のアカウントですでに登録されています。");
+          throw new HttpError(409, "このサイトは、別のアカウントですでに登録されています。");
         }
         oldKeys.docs.forEach((d) => tx.delete(d.ref)); // a new key replaces any earlier one
-        tx.set(claimRef, { tenantId: uid, host: site.host, claimedAt: FieldValue.serverTimestamp() });
+        tx.set(claimRef, { tenantId: uid, host: site.host, path: site.path ?? "", claimedAt: FieldValue.serverTimestamp() });
         tx.set(db().collection("ingestKeys").doc(hash(ingestKey)),
           { tenantId: uid, host: site.host, createdAt: FieldValue.serverTimestamp() });
         tx.set(tenantRef(uid), {
@@ -108,7 +122,7 @@ export async function POST(request: Request) {
           ingestKeyHint: ingestKey.slice(-4),
         }, { merge: true });
       });
-      await audit(uid, "verify_site", { host: site.host, method }, { status: "verified" });
+      await audit(uid, "verify_site", { host: site.host, path: site.path ?? "", method }, { status: "verified" });
       log("INFO", "site verified", { host: site.host });
       // The ingest key is returned once and never stored in plaintext.
       return json({ verified: true, ingestKey });
@@ -116,10 +130,10 @@ export async function POST(request: Request) {
 
     if (body.action === "remove") {
       const snap = await tenantRef(uid).get();
-      const site = snap.get("site") as { host?: string } | undefined;
+      const site = snap.get("site") as StoredSite | undefined;
       const keys = await ingestKeysOf(uid).get();
       const batch = db().batch();
-      if (site?.host) batch.delete(db().collection("siteClaims").doc(site.host));
+      if (site?.host) await releaseClaim(batch, uid, site);
       keys.docs.forEach((d) => batch.delete(d.ref)); // the site's ingest key stops working
       batch.set(tenantRef(uid), { site: FieldValue.delete(), ingestKeyHint: FieldValue.delete() }, { merge: true });
       await batch.commit();

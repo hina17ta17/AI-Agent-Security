@@ -15,7 +15,7 @@ import { Badge, Button, cx } from "./ui";
  */
 
 type Method = "file" | "dns";
-type Framework = "next" | "express" | "fastapi" | "static";
+type Framework = "next" | "express" | "fastapi" | "github" | "static";
 type Saved = { method: Method; step: Record<Method, number>; framework: Framework };
 
 const FILE_PATH = "/.well-known/agentguard-verify.txt";
@@ -41,6 +41,7 @@ const FRAMEWORKS: { id: Framework; label: string }[] = [
   { id: "next", label: "Next.js" },
   { id: "express", label: "Express（Node.js）" },
   { id: "fastapi", label: "FastAPI（Python）" },
+  { id: "github", label: "GitHub Pages" },
   { id: "static", label: "その他・HTMLだけのサイト" },
 ];
 
@@ -49,32 +50,33 @@ const STEPS: Record<Method, string[]> = {
   dns: ["DNSに記録を足す", "反映を待つ", "確認する"],
 };
 
-const storageKey = (host: string) => `agentguard.verify.${host}`;
+const storageKey = (siteUrl: string) => `agentguard.verify.${siteUrl}`;
+export const isGitHubPages = (host: string) => host.endsWith(".github.io");
 
-function load(host: string): Saved {
-  const fallback: Saved = { method: "file", step: { file: 0, dns: 0 }, framework: "next" };
+function load(siteUrl: string, host: string): Saved {
+  const fallback: Saved = { method: "file", step: { file: 0, dns: 0 }, framework: isGitHubPages(host) ? "github" : "next" };
   if (typeof window === "undefined") return fallback;
   try {
-    const raw = window.localStorage.getItem(storageKey(host));
+    const raw = window.localStorage.getItem(storageKey(siteUrl));
     return raw ? { ...fallback, ...(JSON.parse(raw) as Partial<Saved>) } : fallback;
   } catch {
     return fallback; // private mode or blocked storage: start from the beginning
   }
 }
 
-function save(host: string, s: Saved) {
+function save(siteUrl: string, s: Saved) {
   try {
-    window.localStorage.setItem(storageKey(host), JSON.stringify(s));
+    window.localStorage.setItem(storageKey(siteUrl), JSON.stringify(s));
   } catch {
     // only a convenience: losing it just means starting at step 1 again
   }
 }
 
-function downloadFile(token: string) {
-  const url = URL.createObjectURL(new Blob([`${token}\n`], { type: "text/plain" }));
+function downloadFile(content: string, name = "agentguard-verify.txt") {
+  const url = URL.createObjectURL(new Blob([content], { type: "text/plain" }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = "agentguard-verify.txt"; // exact name: avoids "agentguard-verify.txt.txt"
+  a.download = name; // exact name: avoids "agentguard-verify.txt.txt"
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -88,8 +90,11 @@ type DirHandle = {
 };
 type Picker = (o?: { mode?: "readwrite"; id?: string }) => Promise<DirHandle>;
 
-/** Chrome / Edge can write into a folder the owner picks: create .well-known/agentguard-verify.txt there. */
-async function placeInFolder(token: string): Promise<{ status: "done"; folder: string } | { status: "cancelled" | "unsupported" | "error" }> {
+/**
+ * Chrome / Edge can write into a folder the owner picks: create .well-known/agentguard-verify.txt
+ * there (and, for GitHub Pages, the empty .nojekyll that makes Pages publish dot-folders).
+ */
+async function placeInFolder(token: string, noJekyll = false): Promise<{ status: "done"; folder: string } | { status: "cancelled" | "unsupported" | "error" }> {
   const picker = (window as unknown as { showDirectoryPicker?: Picker }).showDirectoryPicker;
   if (!picker) return { status: "unsupported" };
   try {
@@ -99,6 +104,11 @@ async function placeInFolder(token: string): Promise<{ status: "done"; folder: s
     const out = await file.createWritable();
     await out.write(`${token}\n`);
     await out.close();
+    if (noJekyll) {
+      const marker = await (await dir.getFileHandle(".nojekyll", { create: true })).createWritable();
+      await marker.write("");
+      await marker.close();
+    }
     return { status: "done", folder: dir.name };
   } catch (e) {
     return { status: (e as { name?: string })?.name === "AbortError" ? "cancelled" : "error" };
@@ -159,12 +169,14 @@ function FilePlace({ site, framework, setFramework }: {
   const token = site.token ?? "";
   const [placed, setPlaced] = useState<string | null>(null);
 
+  const github = framework === "github";
+
   async function pick() {
-    const r = await placeInFolder(token);
+    const r = await placeInFolder(token, github);
     if (r.status === "done") {
       const hint = framework === "next" && r.folder !== "public"
         ? `（選んだのは「${r.folder}」フォルダです。Next.js では public フォルダを選んでください）` : "";
-      setPlaced(`「${r.folder}」フォルダに .well-known/agentguard-verify.txt を作りました${hint}`);
+      setPlaced(`「${r.folder}」フォルダに .well-known/agentguard-verify.txt${github ? " と .nojekyll" : ""} を作りました${hint}`);
     } else if (r.status === "unsupported") {
       setPlaced("このブラウザではフォルダに直接置けません。下の「ファイルをダウンロード」を使ってください（Chrome / Edge なら直接置けます）。");
     } else if (r.status === "error") {
@@ -197,16 +209,42 @@ function FilePlace({ site, framework, setFramework }: {
         </div>
       ) : (
         <div className="space-y-2">
-          <p className="text-xs text-muted">
-            {framework === "next"
-              ? <>プロジェクトの <code className="font-mono text-ink">public</code> フォルダの中に置きます。</>
-              : <>サイトの公開フォルダ（index.html がある場所）の中に置きます。</>}
-            置く場所：<code className="font-mono text-ink">{framework === "next" ? "public" : "公開フォルダ"}/.well-known/agentguard-verify.txt</code>
-          </p>
+          {github ? (
+            <div className="space-y-1 text-xs text-muted">
+              <p>GitHub Pages では、<b className="text-ink">リポジトリの一番上（index.html がある場所）</b>に次の2つを置いて push します。</p>
+              <ul className="list-disc space-y-0.5 pl-5">
+                <li><code className="font-mono text-ink">.well-known/agentguard-verify.txt</code>（中身は合言葉）</li>
+                <li>
+                  <code className="font-mono text-ink">.nojekyll</code>（中身は空）…
+                  <b className="text-ink">これがないと GitHub Pages は「.」で始まるフォルダを公開しません</b>
+                </li>
+              </ul>
+              <p>push してから公開に反映されるまで、1〜2分かかります。</p>
+            </div>
+          ) : (
+            <p className="text-xs text-muted">
+              {framework === "next"
+                ? <>プロジェクトの <code className="font-mono text-ink">public</code> フォルダの中に置きます。</>
+                : <>サイトの公開フォルダ（index.html がある場所）の中に置きます。</>}
+              置く場所：<code className="font-mono text-ink">{framework === "next" ? "public" : "公開フォルダ"}/.well-known/agentguard-verify.txt</code>
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" onClick={pick}><FolderOpen size={14} /> フォルダを選んで自動で置く</Button>
-            <Button size="sm" variant="ghost" onClick={() => downloadFile(token)}><Download size={14} /> ファイルをダウンロード</Button>
+            <Button size="sm" onClick={pick}>
+              <FolderOpen size={14} /> {github ? "リポジトリのフォルダを選んで自動で置く" : "フォルダを選んで自動で置く"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => downloadFile(`${token}\n`)}><Download size={14} /> 合言葉ファイルをダウンロード</Button>
+            {github && (
+              <Button size="sm" variant="ghost" onClick={() => downloadFile("", ".nojekyll")}><Download size={14} /> .nojekyll をダウンロード</Button>
+            )}
           </div>
+          {(github || framework === "static") && (
+            <p className="rounded-xl bg-warn/10 px-3 py-2 text-[11px] text-amber-800">
+              注意：{github ? "GitHub Pages" : "HTMLだけのサイト"}は、サーバーで動くプログラムを置けません。
+              所有確認と登録はできますが、攻撃を検査する「組み込みコード」は動かないため、このままでは守れません。
+              守るには、Node.js や Python などサーバーで動くサイトが必要です。
+            </p>
+          )}
           {placed && <p className="rounded-xl bg-safe/10 px-3 py-2 text-xs text-emerald-800" role="status">{placed}</p>}
           <details className="text-xs text-muted">
             <summary className="cursor-pointer font-semibold text-brand">ダウンロードして自分で置く場合の注意</summary>
@@ -214,7 +252,7 @@ function FilePlace({ site, framework, setFramework }: {
               <li>ダウンロードしたファイルを、上の「置く場所」へ移動します（フォルダ <code className="font-mono">.well-known</code> がなければ作ります）。</li>
               <li>エクスプローラーで「.」で始まるフォルダを作れないときは、VS Code の「新しいフォルダー」で作ってください。</li>
               <li>ファイル名が <code className="font-mono">agentguard-verify.txt.txt</code> になっていないか、「表示 → ファイル名拡張子」をオンにして確認してください。</li>
-              {framework === "static" && <li>GitHub Pages の場合は、リポジトリの一番上に <code className="font-mono">.nojekyll</code> という空のファイルも置いてください。</li>}
+              {github && <li><code className="font-mono">.nojekyll</code> は、<code className="font-mono">.well-known</code> フォルダと同じ場所（リポジトリの一番上）に置きます。</li>}
             </ul>
           </details>
           <p className="text-[11px] text-muted">合言葉だけ必要な場合：</p>
@@ -250,9 +288,12 @@ function DnsAdd({ site }: { site: ProtectedSite }) {
 
 export function VerifyWizard({ site, onVerified }: { site: ProtectedSite; onVerified: (key: string) => void }) {
   const { api } = useSession();
-  const [state, setState] = useState<Saved>(() => load(site.host));
-  const [busy, setBusy] = useState<"verify" | "remove" | null>(null);
+  const [state, setState] = useState<Saved>(() => load(site.url, site.host));
+  const [busy, setBusy] = useState<"verify" | "remove" | "edit" | null>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string; reason?: string } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [newUrl, setNewUrl] = useState(site.url);
+  const [editError, setEditError] = useState<string | null>(null);
   const dnsPossible = !PLATFORM.test(site.host);
   const method: Method = dnsPossible ? state.method : "file";
   const step = state.step[method] ?? 0;
@@ -261,7 +302,7 @@ export function VerifyWizard({ site, onVerified }: { site: ProtectedSite; onVeri
   function update(next: Partial<Saved>) {
     const merged = { ...state, ...next, step: { ...state.step, ...(next.step ?? {}) } };
     setState(merged);
-    save(site.host, merged);
+    save(site.url, merged);
   }
   const goto = (i: number) => { setResult(null); update({ step: { ...state.step, [method]: Math.max(0, Math.min(last, i)) } }); };
   const switchTo = (m: Method) => { setResult(null); update({ method: m }); };
@@ -273,7 +314,7 @@ export function VerifyWizard({ site, onVerified }: { site: ProtectedSite; onVeri
       const r = await api<{ verified: boolean; message?: string; reason?: string; ingestKey?: string }>(
         "/api/site", { body: { action: "verify", method } });
       if (r.verified && r.ingestKey) {
-        save(site.host, { ...state, step: { file: 0, dns: 0 } });
+        save(site.url, { ...state, step: { file: 0, dns: 0 } });
         onVerified(r.ingestKey);
       }
       setResult(r.verified ? { ok: true, text: "所有を確認しました。" } : { ok: false, text: r.message ?? "確認できませんでした。", reason: r.reason });
@@ -288,14 +329,44 @@ export function VerifyWizard({ site, onVerified }: { site: ProtectedSite; onVeri
     setBusy("remove");
     try { await api("/api/site", { body: { action: "remove" } }); } finally { setBusy(null); }
   }
+  /** Fix a mistyped URL. On the same domain the token stays the same, so nothing needs redoing. */
+  async function changeUrl() {
+    setBusy("edit");
+    setEditError(null);
+    try {
+      await api("/api/site", { body: { action: "register", url: newUrl } });
+      setEditing(false);
+      setResult(null);
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : "変更できませんでした");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const fileUrl = `${site.url}${FILE_PATH}`;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-sm font-bold">{site.host}</span>
+        <span className="break-all font-mono text-sm font-bold">{site.url}</span>
         <Badge tone="warn">所有確認まち</Badge>
+        {!editing && (
+          <button type="button" onClick={() => { setNewUrl(site.url); setEditing(true); }}
+                  className="text-xs font-semibold text-brand hover:underline">URLを直す</button>
+        )}
       </div>
+      {editing && (
+        <div className="space-y-2 rounded-2xl border border-line p-3">
+          <p className="text-xs text-muted">同じドメインのまま直す場合は、合言葉は変わりません（置いたファイルはそのまま使えます）。</p>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input type="url" value={newUrl} onChange={(e) => setNewUrl(e.target.value)}
+                   className="h-10 flex-1 rounded-xl border border-line bg-white px-3 font-mono text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
+            <Button size="sm" disabled={busy !== null} onClick={changeUrl}>{busy === "edit" ? "変更中…" : "この URL にする"}</Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>やめる</Button>
+          </div>
+          {editError && <p className="text-xs text-rose-600">{editError}</p>}
+        </div>
+      )}
       <p className="text-sm text-muted">
         他人のサイトを勝手に登録できないよう、<b className="text-ink">サイトの持ち主だけができる作業</b>で本人確認をします。
         方法は2つあり、<b className="text-ink">途中でいつでも切り替えられます</b>。

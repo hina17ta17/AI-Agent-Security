@@ -28,8 +28,9 @@ export type Tenant = {
 };
 
 export type ProtectedSite = {
-  url: string;
+  url: string; // https://host[/base-path]
   host: string;
+  path?: string; // "" or "/repo" (e.g. a GitHub Pages project site)
   status: "pending" | "verified";
   token?: string; // ownership token to place while pending
   registeredAt?: Timestamp;
