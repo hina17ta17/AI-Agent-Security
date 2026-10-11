@@ -1,12 +1,12 @@
 "use client";
 
-import { Cpu, ExternalLink, Globe, KeyRound, Lock, ShieldCheck, Trash2, Wrench } from "lucide-react";
+import { Cpu, ExternalLink, Globe, KeyRound, Lock, LogOut, ShieldCheck, Trash2, UserCheck, Wrench } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { Badge, Button, Card, CardHeader, cx } from "@/components/ui";
-import { useSession } from "@/lib/auth-context";
-import { remaining, toDate } from "@/lib/format";
-import { useNow, useTenant } from "@/lib/hooks";
+import { useAuth, useSession } from "@/lib/auth-context";
+import { dateTimeJst, remaining, toDate } from "@/lib/format";
+import { useLogins, useNow, useTenant } from "@/lib/hooks";
 
 function useAction() {
   const [busy, setBusy] = useState(false);
@@ -192,10 +192,62 @@ function SiteCard() {
   );
 }
 
+function LoginSecurityCard() {
+  const { api } = useSession();
+  const { signOut } = useAuth();
+  const logins = useLogins(10).data;
+  const act = useAction();
+
+  async function signOutEverywhere() {
+    if (!window.confirm("すべての端末（この端末も含む）からログアウトします。よろしいですか？")) return;
+    await act.run(async () => {
+      await api("/api/security", { body: { action: "revoke" } });
+      await signOut();
+    }, "すべての端末からログアウトしました。");
+  }
+
+  return (
+    <Card>
+      <CardHeader title="ログインと安全" icon={<UserCheck size={16} className="text-brand" />}
+                  sub="最近のログインを確認できます。IPアドレスは最後の部分を伏せて保存しています" />
+      <div className="p-5">
+        {logins.length === 0 ? (
+          <p className="text-sm text-muted">まだ記録がありません（次のログインから記録されます）。</p>
+        ) : (
+          <ul className="divide-y divide-line rounded-2xl border border-line">
+            {logins.map((l) => (
+              <li key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+                <span className="font-mono text-xs text-muted tabular-nums">{dateTimeJst(l.at)}</span>
+                <span className="font-semibold text-ink">{l.device}</span>
+                <span className="font-mono text-xs text-muted">{l.ipPrefix}</span>
+                <span className="text-xs text-muted">{l.method}</span>
+                {l.newDevice && <Badge tone="warn">新しい端末</Badge>}
+              </li>
+            ))}
+          </ul>
+        )}
+        <Button variant="danger" className="mt-4" disabled={act.busy} onClick={signOutEverywhere}>
+          <LogOut size={14} /> すべての端末からログアウト
+        </Button>
+        <Note m={act.message} />
+        <ul className="mt-4 space-y-2 text-xs leading-relaxed text-muted">
+          <li className="flex gap-2"><ShieldCheck size={14} className="mt-0.5 shrink-0 text-safe" />
+            <span>はじめての端末からログインすると、すべての画面の上に警告を出します。</span></li>
+          <li className="flex gap-2"><ShieldCheck size={14} className="mt-0.5 shrink-0 text-safe" />
+            <span>パスワードを何度も間違えると、ログインが一時的に止まります（総当たり対策）。</span></li>
+          <li className="flex gap-2"><ShieldCheck size={14} className="mt-0.5 shrink-0 text-warn" />
+            <span>心当たりのないログインがあったら、すべての端末からログアウトし、パスワードを変更してください。</span></li>
+        </ul>
+      </div>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <h1 className="font-display text-2xl font-bold">設定</h1>
+      <LoginSecurityCard />
       <ApiKeyCard />
       <ModeCard />
       <AllowlistCard />

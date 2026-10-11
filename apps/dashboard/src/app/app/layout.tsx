@@ -7,6 +7,7 @@ import { type ReactNode, useEffect } from "react";
 
 import { AttackBackdrop } from "@/components/attack-backdrop";
 import { Logo } from "@/components/logo";
+import { SecurityBanner } from "@/components/security-banner";
 import { Badge, Button, cx } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import { useTenant } from "@/lib/hooks";
@@ -90,7 +91,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </button>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">{children}</main>
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+        <SecurityBanner />
+        {children}
+      </main>
     </div>
   );
 }

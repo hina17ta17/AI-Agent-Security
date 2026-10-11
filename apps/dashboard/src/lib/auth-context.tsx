@@ -65,6 +65,15 @@ async function callApi<T>(user: User, path: string, init: { method?: string; bod
   return data as T;
 }
 
+/** Record one real sign-in (for the account's login history). Never blocks the login itself. */
+async function recordLogin(user: User, method: "google" | "password" | "signup"): Promise<void> {
+  try {
+    await callApi(user, "/api/session", { body: { method } });
+  } catch {
+    // The login succeeded; only the history entry is missing.
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session>({ status: "loading" });
 
@@ -93,15 +102,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = useCallback(async () => {
     const { auth } = await loadFirebase();
-    await signInWithPopup(auth, new GoogleAuthProvider());
+    const { user } = await signInWithPopup(auth, new GoogleAuthProvider());
+    await recordLogin(user, "google");
   }, []);
   const signInWithEmail = useCallback(async (email: string, password: string) => {
     const { auth } = await loadFirebase();
-    await signInWithEmailAndPassword(auth, email, password);
+    const { user } = await signInWithEmailAndPassword(auth, email, password);
+    await recordLogin(user, "password");
   }, []);
   const signUpWithEmail = useCallback(async (email: string, password: string) => {
     const { auth } = await loadFirebase();
-    await createUserWithEmailAndPassword(auth, email, password);
+    const { user } = await createUserWithEmailAndPassword(auth, email, password);
+    await recordLogin(user, "signup");
   }, []);
   const signOut = useCallback(async () => {
     const { auth } = await loadFirebase();

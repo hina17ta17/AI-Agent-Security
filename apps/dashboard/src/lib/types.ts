@@ -20,6 +20,18 @@ export type Tenant = {
   campaignId?: string;
   lastAttackerIp?: string;
   settings?: { allowlist?: string[] };
+  /** Account protection: the latest sign-in from a device this account had not used before. */
+  security?: { lastNewDeviceAt?: Timestamp; lastNewDevice?: string; acknowledgedAt?: Timestamp };
+};
+
+/** One sign-in, as shown to the account owner (the network is truncated; no full IP is stored). */
+export type LoginEvent = {
+  id: string;
+  at?: Timestamp;
+  ipPrefix: string;
+  device: string;
+  method: string;
+  newDevice: boolean;
 };
 
 /** An attack wave: beyond the concurrent-AI cap, events are blocked at once by rule. */

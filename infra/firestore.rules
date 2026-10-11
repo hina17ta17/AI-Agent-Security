@@ -11,12 +11,26 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == uid;
     }
 
+    // "Sign out everywhere" writes tenants/{uid}.sessionsValidAfter (a Unix time in seconds).
+    // Sessions whose sign-in happened before that moment can no longer read anything.
+    // Missing document or missing field -> 0, so normal accounts are unaffected.
+    function sessionStart() {
+      return request.auth.token.auth_time;
+    }
+
+    function cutoffFor(database, uid) {
+      return exists(/databases/$(database)/documents/tenants/$(uid))
+        ? get(/databases/$(database)/documents/tenants/$(uid)).data.get('sessionsValidAfter', 0)
+        : 0;
+    }
+
     match /tenants/{uid} {
-      allow read: if isOwner(uid);
+      allow read: if isOwner(uid)
+        && (resource == null || sessionStart() >= resource.data.get('sessionsValidAfter', 0));
       allow write: if false;
 
       match /{sub=**} {
-        allow read: if isOwner(uid);
+        allow read: if isOwner(uid) && sessionStart() >= cutoffFor(database, uid);
         allow write: if false;
       }
     }

@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 
 import { useSession } from "./auth-context";
 import { serverNow } from "./clock";
-import type { Approval, AuditEntry, BlockEntry, Campaign, Incident, Step, Tenant, Usage } from "./types";
+import type { Approval, AuditEntry, BlockEntry, Campaign, Incident, LoginEvent, Step, Tenant, Usage } from "./types";
 
 type Live<T> = { data: T; loading: boolean; error: string | null };
 
@@ -82,6 +82,12 @@ export function useSteps(incidentId: string | null) {
 export function useCampaign(id: string | null) {
   const { db, uid } = useSession();
   return useLiveDoc<Campaign>(id ? `campaign/${uid}/${id}` : null, () => doc(db, "tenants", uid, "campaigns", id!));
+}
+
+export function useLogins(max = 10) {
+  const { db, uid } = useSession();
+  return useLiveQuery<LoginEvent>(`logins/${uid}/${max}`, () =>
+    query(collection(db, "tenants", uid, "logins"), orderBy("at", "desc"), limit(max)));
 }
 
 export function useBlocklist() {
