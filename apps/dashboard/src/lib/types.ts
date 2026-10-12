@@ -23,8 +23,10 @@ export type Tenant = {
   security?: { lastNewDeviceAt?: Timestamp; lastNewDevice?: string; acknowledgedAt?: Timestamp };
   /** The site this account protects (one per account). */
   site?: ProtectedSite;
-  /** Last 4 characters of the ingest key (the key itself is shown only once). */
+  /** Last 4 characters of the connection key (the key itself is shown only once). */
   ingestKeyHint?: string;
+  /** When the registered site last reported a request (updated at most once a minute). */
+  siteLastReportAt?: Timestamp;
 };
 
 export type ProtectedSite = {

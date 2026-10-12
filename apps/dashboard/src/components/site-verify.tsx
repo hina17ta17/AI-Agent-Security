@@ -6,7 +6,10 @@ import { useState } from "react";
 import { useSession } from "@/lib/auth-context";
 import type { ProtectedSite } from "@/lib/types";
 
+import { ConnectionStatus } from "./connection-status";
 import { CopyField } from "./copy-field";
+import { KeyBox } from "./site-connect";
+import { integrationSnippet, KEY_PLACES } from "./site-snippets";
 import { Badge, Button, cx } from "./ui";
 
 /**
@@ -150,46 +153,11 @@ function Nav({ step, last, onBack, onNext, nextLabel }: {
   );
 }
 
-/**
- * Code for sites that run on a server: answer AgentGuard's challenge with HMAC-SHA256(token, challenge).
- * The token lives only in the environment variable, so it never appears on the site or in the code.
- */
-function privateSnippet(fw: "next" | "express" | "fastapi", basePath: string): string {
-  const route = `${basePath}${FILE_PATH}`;
-  if (fw === "next") {
-    return `// ファイルの場所：app${route}/route.ts（src を使っている場合は src/app${route}/route.ts）
-// AgentGuard の所有確認。合言葉は環境変数 AGENTGUARD_VERIFY_TOKEN に置き、外には出しません。
-import { createHmac } from "node:crypto";
-
-export function GET(request: Request) {
-  const challenge = new URL(request.url).searchParams.get("challenge") ?? "";
-  const answer = createHmac("sha256", process.env.AGENTGUARD_VERIFY_TOKEN ?? "").update(challenge).digest("hex");
-  return new Response(answer, { headers: { "content-type": "text/plain" } });
-}`;
-  }
-  if (fw === "express") {
-    return `// AgentGuard の所有確認。合言葉は環境変数 AGENTGUARD_VERIFY_TOKEN に置き、外には出しません。
-const { createHmac } = require("node:crypto");
-
-app.get("${route}", (req, res) => {
-  const challenge = String(req.query.challenge || "");
-  const answer = createHmac("sha256", process.env.AGENTGUARD_VERIFY_TOKEN || "").update(challenge).digest("hex");
-  res.type("text/plain").send(answer);
-});`;
-  }
-  return `# AgentGuard の所有確認。合言葉は環境変数 AGENTGUARD_VERIFY_TOKEN に置き、外には出しません。
-import hashlib, hmac, os
-from fastapi.responses import PlainTextResponse
-
-@app.get("${route}", response_class=PlainTextResponse)
-def agentguard_verify(challenge: str = ""):
-    key = os.environ.get("AGENTGUARD_VERIFY_TOKEN", "").encode()
-    return hmac.new(key, challenge.encode(), hashlib.sha256).hexdigest()`;
-}
-
-function FilePlace({ site, framework, setFramework }: {
+function FilePlace({ site, framework, setFramework, connectionKey, keyHint, onRotate }: {
   site: ProtectedSite; framework: Framework; setFramework: (f: Framework) => void;
+  connectionKey: string | null; keyHint?: string; onRotate: () => Promise<void>;
 }) {
+  const { ingestUrl } = useSession();
   const token = site.token ?? "";
   const [placed, setPlaced] = useState<string | null>(null);
 
@@ -224,17 +192,22 @@ function FilePlace({ site, framework, setFramework }: {
       {framework === "next" || framework === "express" || framework === "fastapi" ? (
         <div className="space-y-3">
           <p className="rounded-xl bg-safe/10 px-3 py-2 text-xs text-emerald-800">
-            <b>合言葉を外に見せない方法</b>です。合言葉はサイトの環境変数にだけ置き、AgentGuard には毎回ちがう「問題」への答えだけを返します。
-            答えから合言葉を知ることはできないので、誰かがこのURLを開いても合言葉は分かりません。
+            <b>キー1つとコード1つで、所有確認と保護がまとめて終わります。</b>接続キーはサイトの環境変数にだけ置き、
+            所有確認には毎回ちがう「問題」への答えだけを返すので、キーが外から見えることはありません。
           </p>
           <div>
-            <p className="mb-1 text-xs font-bold text-ink">(1) サイトの環境変数 <code className="font-mono">AGENTGUARD_VERIFY_TOKEN</code> に、次の合言葉を設定する</p>
-            <CopyField value={token} label="合言葉" />
-            <p className="mt-1 text-[11px] text-muted">Cloud Run なら「新しいリビジョンの編集とデプロイ → 変数とシークレット」、ローカルなら .env ファイルに書きます（.env は公開リポジトリに入れないでください）。</p>
+            <p className="mb-1 text-xs font-bold text-ink">(1) サイトの環境変数 <code className="font-mono">AGENTGUARD_KEY</code> に、接続キーを設定する</p>
+            <KeyBox connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} />
           </div>
           <div>
-            <p className="mb-1 text-xs font-bold text-ink">(2) 次のコードをアプリに追加する</p>
-            <CopyField value={privateSnippet(framework, site.path ?? "")} label="追加するコード" />
+            <p className="mb-1 text-xs font-bold text-ink">(2) 次のコードをサイトに追加する</p>
+            <CopyField value={integrationSnippet(framework, ingestUrl, site.path ?? "")} label="組み込みコード" />
+            <details className="mt-1 text-xs text-muted">
+              <summary className="cursor-pointer font-semibold text-brand">環境変数 AGENTGUARD_KEY の設定場所</summary>
+              <ul className="mt-1 list-disc space-y-1 pl-5">
+                {KEY_PLACES.map((p) => <li key={p.name}><b className="text-ink">{p.name}</b>：{p.how}</li>)}
+              </ul>
+            </details>
           </div>
         </div>
       ) : (
@@ -318,8 +291,10 @@ function DnsAdd({ site }: { site: ProtectedSite }) {
   );
 }
 
-export function VerifyWizard({ site, onVerified }: {
-  site: ProtectedSite; onVerified: (key: string, mode: "private" | "public" | "dns") => void;
+export function VerifyWizard({ site, onVerified, connectionKey, keyHint, onRotate }: {
+  site: ProtectedSite;
+  onVerified: (key: string | null, mode: "connected" | "private" | "public" | "dns") => void;
+  connectionKey: string | null; keyHint?: string; onRotate: () => Promise<void>;
 }) {
   const { api } = useSession();
   const [state, setState] = useState<Saved>(() => load(site.url, site.host));
@@ -345,11 +320,11 @@ export function VerifyWizard({ site, onVerified }: {
     setBusy("verify");
     setResult(null);
     try {
-      const r = await api<{ verified: boolean; message?: string; reason?: string; ingestKey?: string; mode?: "private" | "public" | "dns" }>(
+      const r = await api<{ verified: boolean; message?: string; reason?: string; connectionKey?: string | null; mode?: "connected" | "private" | "public" | "dns" }>(
         "/api/site", { body: { action: "verify", method } });
-      if (r.verified && r.ingestKey) {
+      if (r.verified) {
         save(site.url, { ...state, step: { file: 0, dns: 0 } });
-        onVerified(r.ingestKey, r.mode ?? "public");
+        onVerified(r.connectionKey ?? null, r.mode ?? "public");
       }
       setResult(r.verified ? { ok: true, text: "所有を確認しました。" } : { ok: false, text: r.message ?? "確認できませんでした。", reason: r.reason });
     } catch (e) {
@@ -433,20 +408,31 @@ export function VerifyWizard({ site, onVerified }: {
         <StepBar method={method} step={step} onGo={goto} />
         <div className="mt-4">
           {method === "file" && step === 0 && (
-            <FilePlace site={site} framework={state.framework} setFramework={(f) => update({ framework: f })} />
+            <FilePlace site={site} framework={state.framework} setFramework={(f) => update({ framework: f })}
+                       connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} />
           )}
           {method === "file" && step === 1 && (
             <div className="space-y-2 text-sm">
               <p className="text-muted">変更したサイトを、いつもの方法で<b className="text-ink">公開（デプロイ）し直して</b>ください。パソコンの中にあるだけでは、AgentGuard から見えません。</p>
               <p className="text-muted">
                 {["next", "express", "fastapi"].includes(state.framework)
-                  ? <>公開できたら、次のリンクを開きます。<b className="text-ink">英数字64文字の答え</b>が表示されればOKです（合言葉そのものは表示されません）。</>
+                  ? <>公開できたら、サイトを一度ブラウザで開いてください。下の表示が緑になれば、コードとキーが正しく動いています。</>
                   : <>公開できたら、次のリンクを開いて合言葉が表示されるか確かめます。</>}
               </p>
-              <a href={fileUrl} target="_blank" rel="noreferrer"
-                 className="inline-flex items-center gap-1.5 break-all rounded-xl border border-line bg-white px-3 py-2 font-mono text-xs text-brand hover:bg-brand/5">
-                {fileUrl} <ExternalLink size={12} className="shrink-0" />
-              </a>
+              {["next", "express", "fastapi"].includes(state.framework) ? (
+                <>
+                  <a href={site.url} target="_blank" rel="noreferrer"
+                     className="inline-flex items-center gap-1.5 break-all rounded-xl border border-line bg-white px-3 py-2 font-mono text-xs text-brand hover:bg-brand/5">
+                    {site.url} を開く <ExternalLink size={12} className="shrink-0" />
+                  </a>
+                  <ConnectionStatus />
+                </>
+              ) : (
+                <a href={fileUrl} target="_blank" rel="noreferrer"
+                   className="inline-flex items-center gap-1.5 break-all rounded-xl border border-line bg-white px-3 py-2 font-mono text-xs text-brand hover:bg-brand/5">
+                  {fileUrl} <ExternalLink size={12} className="shrink-0" />
+                </a>
+              )}
             </div>
           )}
           {method === "dns" && step === 0 && <DnsAdd site={site} />}

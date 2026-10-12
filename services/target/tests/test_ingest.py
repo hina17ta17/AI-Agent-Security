@@ -21,6 +21,7 @@ class FakeStore:
         self.blocks: dict[str, dict] = {}
         self.state = TenantState(tenant_id=TENANT)
         self.hits: list[str] = []
+        self.reports: list[str] = []
 
     async def tenant_for_ingest_key(self, key_hash):
         if key_hash == hashlib.sha256(INGEST_KEY.encode()).hexdigest():
@@ -35,6 +36,9 @@ class FakeStore:
 
     async def count_blocked_hit(self, tenant_id, ip):
         self.hits.append(ip)
+
+    async def note_site_report(self, tenant_id):
+        self.reports.append(tenant_id)
 
 
 class FakePublisher:
@@ -184,3 +188,16 @@ def test_self_protection_is_off_without_a_configured_tenant(env):
     r = client.post("/ingest", json={"path": "/", "agentguardSelf": True},
                     headers={"authorization": "Bearer good-sa-token"})
     assert r.status_code == 401
+
+
+def test_a_real_site_report_marks_the_connection_alive(env):
+    client, store, _ = env
+    client.post("/ingest", json={"path": "/", "ip": "198.51.100.9"}, headers=key_auth())
+    assert store.reports == [TENANT]
+
+
+def test_simulated_reports_do_not_count_as_a_connection(env):
+    client, store, _ = env
+    client.post("/ingest", json={"path": "/", "simulated": True, "tenantId": TENANT, "ip": SIM_IP},
+                headers={"authorization": "Bearer good-sa-token"})
+    assert store.reports == []

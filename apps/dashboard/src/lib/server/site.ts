@@ -123,13 +123,26 @@ async function assertPublicHost(host: string): Promise<void> {
 
 /** Why a check failed, so the owner knows what to fix. */
 export type CheckResult =
-  | { ok: true; mode?: "private" | "public" }
+  | { ok: true; mode?: "connected" | "private" | "public" }
   | { ok: false; reason: "unreachable" | "not_found" | "redirect" | "mismatch" | "no_record";
       status?: number; location?: string };
 
 /** The answer a site that keeps the token private gives to a challenge. */
 export function challengeAnswer(token: string, challenge: string): string {
   return createHmac("sha256", token).update(challenge).digest("hex");
+}
+
+/**
+ * One connection key does everything on the site. AgentGuard stores only its hash (to accept
+ * reports) and this derived verify secret (to check ownership answers), never the key itself.
+ * The site's integration code derives the same secret and answers HMAC(secret, challenge).
+ */
+export function deriveVerifySecret(connectionKey: string): string {
+  return createHmac("sha256", connectionKey).update("agentguard-verify").digest("hex");
+}
+
+function connectedAnswer(verifySecret: string, challenge: string): string {
+  return createHmac("sha256", Buffer.from(verifySecret, "hex")).update(challenge).digest("hex");
 }
 
 function sameText(a: string, b: string): boolean {
@@ -143,7 +156,8 @@ function sameText(a: string, b: string): boolean {
  * (HMAC of the challenge) or the public token. Redirects are reported, never followed.
  * `path` is the site's base path ("" or "/repo"); the file lives under it.
  */
-export async function checkFile(host: string, path: string, token: string): Promise<CheckResult> {
+export async function checkFile(host: string, path: string, token: string,
+                                verifySecrets: string[] = []): Promise<CheckResult> {
   await assertPublicHost(host);
   const challenge = randomBytes(16).toString("hex");
   const controller = new AbortController();
@@ -162,7 +176,9 @@ export async function checkFile(host: string, path: string, token: string): Prom
     }
     if (!res.ok) return { ok: false, reason: "not_found", status: res.status };
     const text = (await res.text()).slice(0, MAX_BODY);
-    if (sameText(text.trim(), challengeAnswer(token, challenge))) return { ok: true, mode: "private" };
+    const answer = text.trim();
+    if (verifySecrets.some((v) => sameText(answer, connectedAnswer(v, challenge)))) return { ok: true, mode: "connected" };
+    if (sameText(answer, challengeAnswer(token, challenge))) return { ok: true, mode: "private" };
     return text.includes(token) ? { ok: true, mode: "public" } : { ok: false, reason: "mismatch" };
   } catch {
     return { ok: false, reason: "unreachable" };

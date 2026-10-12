@@ -1,15 +1,16 @@
-# set-site-secret.ps1 - store a secret for the RGB site (Cloud Run "rgb") in Secret Manager
-# and connect it to the service. RUN THIS YOURSELF with your own (owner) Google account.
+# set-site-secret.ps1 - give the RGB site (Cloud Run "rgb") its AgentGuard connection key.
+# RUN THIS YOURSELF with your own (owner) Google account:
 #
-#   .\infra\set-site-secret.ps1 -Kind verify   # AgentGuard ownership token -> AGENTGUARD_VERIFY_TOKEN
-#   .\infra\set-site-secret.ps1 -Kind ingest   # AgentGuard ingest key      -> AGENTGUARD_INGEST_KEY
+#   .\infra\set-site-secret.ps1
 #
-# - The value is typed hidden; it is never printed, logged, or kept in this repository.
+# - Paste the connection key shown in AgentGuard (Settings > "Site" card). It is typed hidden and is
+#   never printed, logged, or kept in this repository.
+# - It is stored in Secret Manager and given to the site as AGENTGUARD_KEY. That one key enables
+#   both AgentGuard's ownership check and the protection.
 # - It uses a separate gcloud configuration ("agentguard-owner"), so Claude's configuration
 #   (claude-dev) is not used and cannot read the secret.
-# - The site runs as its own service account (sa-site-rgb) that can read only these two secrets.
+# - The site runs as its own service account (sa-site-rgb) that can read only this secret.
 param(
-  [Parameter(Mandatory = $true)][ValidateSet("verify", "ingest")][string]$Kind,
   [string]$Project = "agent-ai-511212",
   [string]$Region = "asia-northeast1",
   [string]$Service = "rgb"
@@ -17,8 +18,8 @@ param(
 $ErrorActionPreference = "Continue"
 $cfg = "agentguard-owner"
 $sa = "sa-site-rgb@$Project.iam.gserviceaccount.com"
-if ($Kind -eq "verify") { $secret = "rgb-verify-token"; $envName = "AGENTGUARD_VERIFY_TOKEN" }
-else { $secret = "rgb-ingest-key"; $envName = "AGENTGUARD_INGEST_KEY" }
+$secret = "rgb-agentguard-key"
+$envName = "AGENTGUARD_KEY"
 
 function Step($text) { Write-Host ""; Write-Host "==> $text" -ForegroundColor Cyan }
 function Check($what) { if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: $what" -ForegroundColor Red; exit 1 } }
@@ -50,7 +51,7 @@ gcloud secrets describe $secret --project $Project --configuration $cfg --format
 if ($LASTEXITCODE -ne 0) {
   gcloud secrets create $secret --project $Project --configuration $cfg --replication-policy=automatic; Check "create secret"
 }
-$secure = Read-Host -AsSecureString "Paste the value (hidden), then press Enter"
+$secure = Read-Host -AsSecureString "Paste the connection key (hidden), then press Enter"
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 $tmp = [IO.Path]::GetTempFileName()
 try {

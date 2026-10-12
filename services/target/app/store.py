@@ -47,6 +47,15 @@ class Store:
         self.db = db
         self._tenants = _TTLCache()
         self._keys = _TTLCache()
+        self._reports = _TTLCache()
+
+    async def note_site_report(self, tenant_id: str) -> None:
+        """Let the dashboard show "your site is connected": record the last report, at most once a minute."""
+        found, _ = self._reports.get(tenant_id)
+        if found:
+            return
+        self._reports.put(tenant_id, True, ttl=60)
+        await self.db.collection("tenants").document(tenant_id).update({"siteLastReportAt": firestore.SERVER_TIMESTAMP})
 
     async def tenant_for_ingest_key(self, key_hash: str) -> tuple[str | None, str | None]:
         """Map a hashed ingest key to (tenantId, host). Cached briefly; only the hash is ever stored."""

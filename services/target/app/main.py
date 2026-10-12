@@ -122,6 +122,11 @@ async def ingest_request(request: Request):
     tenant_id, simulated = await _authenticate_ingest(request, req)
     if not tenant_id:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not simulated and not req.agentguardSelf:
+        try:  # a real site's report: the dashboard shows the connection as alive
+            await store.note_site_report(tenant_id)
+        except Exception as exc:
+            log("WARNING", "could not record the site report time", error=repr(exc)[:200])
     ip, simulated = ingest.resolve_ip(req, simulated)
 
     t_rules = time.perf_counter()

@@ -1,73 +1,19 @@
 "use client";
 
 import { Globe, ShieldCheck, Trash2 } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useState } from "react";
 
 import { useSession } from "@/lib/auth-context";
 import { useTenant } from "@/lib/hooks";
 import type { ProtectedSite } from "@/lib/types";
 
-import { CopyField } from "./copy-field";
+import { ConnectionStatus } from "./connection-status";
+import { IntegrationCode, KeyBox } from "./site-connect";
+import type { ServerFramework } from "./site-snippets";
 import { isGitHubPages, VerifyWizard } from "./site-verify";
-import { Badge, Button, Card, CardHeader, cx } from "./ui";
+import { Badge, Button, Card, CardHeader } from "./ui";
 
-function snippet(lang: "node" | "python", ingestUrl: string): string {
-  if (lang === "node") {
-    return `// AgentGuard 保護ミドルウェア（Express）。環境変数 AGENTGUARD_INGEST_KEY に取り込みキーを設定。
-// パスワードなどの欄は伏せてから送ります（AgentGuard には届きません）。
-const SECRET = /pass|pwd|token|secret|card|cvc|otp/i;
-const hide = (o) => Object.fromEntries(Object.entries(o ?? {}).map(([k, v]) => [k, SECRET.test(k) ? "[伏せ字]" : v]));
-// 接続元IP：Cloud Run などの後ろでは、X-Forwarded-For の「最後」が本当の接続元です（前の部分は偽装できます）。
-const clientIp = (req) => (req.get("x-forwarded-for") || "").split(",").pop().trim() || req.socket.remoteAddress;
-app.use(async (req, res, next) => {
-  try {
-    const r = await fetch("${ingestUrl}", {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: \`Bearer \${process.env.AGENTGUARD_INGEST_KEY}\` },
-      body: JSON.stringify({
-        method: req.method, path: req.path, query: hide(req.query),
-        headers: { "user-agent": req.get("user-agent") || "", "content-type": "application/json" },
-        body: req.body && typeof req.body === "object" ? JSON.stringify(hide(req.body)) : "",
-        ip: clientIp(req),
-      }),
-      signal: AbortSignal.timeout(2000),
-    });
-    const d = await r.json();
-    if (d.block) return res.status(403).send("Blocked by AgentGuard");
-  } catch { /* 到達できないときは通す（サイトを止めない） */ }
-  next();
-});`;
-  }
-  return `# AgentGuard 保護ミドルウェア（FastAPI）。環境変数 AGENTGUARD_INGEST_KEY に取り込みキーを設定。
-# パスワードなどの欄は伏せてから送ります（AgentGuard には届きません）。
-import os, re, httpx
-from starlette.responses import PlainTextResponse
-
-SECRET = re.compile(r"pass|pwd|token|secret|card|cvc|otp", re.I)
-
-def client_ip(request):
-    # Cloud Run などの後ろでは、X-Forwarded-For の「最後」が本当の接続元です（前の部分は偽装できます）。
-    xff = request.headers.get("x-forwarded-for", "")
-    return xff.split(",")[-1].strip() if xff else (request.client.host if request.client else None)
-
-@app.middleware("http")
-async def agentguard(request, call_next):
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as c:
-            r = await c.post("${ingestUrl}",
-                headers={"authorization": f"Bearer {os.environ['AGENTGUARD_INGEST_KEY']}"},
-                json={"method": request.method, "path": request.url.path,
-                      "query": {k: ("[伏せ字]" if SECRET.search(k) else v) for k, v in request.query_params.items()},
-                      "headers": {"user-agent": request.headers.get("user-agent", "")},
-                      "ip": client_ip(request)})
-        if r.json().get("block"):
-            return PlainTextResponse("Blocked by AgentGuard", status_code=403)
-    except Exception:
-        pass  # 到達できないときは通す（サイトを止めない）
-    return await call_next(request)`;
-}
-
-function RegisterForm() {
+function RegisterForm({ onRegistered }: { onRegistered: (key: string | null) => void }) {
   const { api } = useSession();
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -78,7 +24,8 @@ function RegisterForm() {
     setBusy(true);
     setError(null);
     try {
-      await api("/api/site", { body: { action: "register", url } });
+      const r = await api<{ connectionKey: string | null }>("/api/site", { body: { action: "register", url } });
+      onRegistered(r.connectionKey);
     } catch (err) {
       setError(err instanceof Error ? err.message : "登録できませんでした");
     } finally {
@@ -88,7 +35,7 @@ function RegisterForm() {
 
   return (
     <form onSubmit={submit} className="space-y-3">
-      <p className="text-sm text-muted">守りたいご自分のサイトのURLを登録してください（1アカウント1つまで）。登録後、所有確認を行います。</p>
+      <p className="text-sm text-muted">守りたいご自分のサイトのURLを登録してください（1アカウント1つまで）。登録すると、サイトにつなぐための「接続キー」が発行されます。</p>
       <p className="text-xs text-muted">
         保存するのはサイトのURLと所有確認の状態だけです。サイトの中身や、ふつうの訪問者の情報は保存しません
         （攻撃と判定したときだけ、攻撃元IPと攻撃内容の一部を記録します）。
@@ -108,20 +55,17 @@ function RegisterForm() {
   );
 }
 
-function VerifiedPanel({ site, keyHint, freshKey, freshMode }: {
-  site: ProtectedSite; keyHint?: string; freshKey: string | null; freshMode: "private" | "public" | "dns" | null;
+function VerifiedPanel({ site, keyHint, connectionKey, verifiedMode, onRotate }: {
+  site: ProtectedSite; keyHint?: string; connectionKey: string | null;
+  verifiedMode: "connected" | "private" | "public" | "dns" | null; onRotate: () => Promise<void>;
 }) {
-  const { api, ingestUrl } = useSession();
-  const [lang, setLang] = useState<"node" | "python">("node");
+  const { api } = useSession();
+  const [framework, setFramework] = useState<ServerFramework>("next");
   const [busy, setBusy] = useState(false);
-  const keyBox = useRef<HTMLDivElement>(null);
-  // Right after verification, take the owner straight to the one-time key (the next thing to do).
-  useEffect(() => {
-    if (freshKey) keyBox.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [freshKey]);
+  const staticSite = isGitHubPages(site.host);
 
   async function remove() {
-    if (!window.confirm(`${site.host} の保護をやめますか？取り込みキーは無効になります。`)) return;
+    if (!window.confirm(`${site.host} の保護をやめますか？接続キーは無効になります。`)) return;
     setBusy(true);
     try { await api("/api/site", { body: { action: "remove" } }); }
     finally { setBusy(false); }
@@ -131,62 +75,52 @@ function VerifiedPanel({ site, keyHint, freshKey, freshMode }: {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <a href={site.url} target="_blank" rel="noreferrer" className="break-all font-mono text-sm text-brand hover:underline">{site.url}</a>
-        <Badge tone="safe">登録済み</Badge>
+        <Badge tone="safe">所有確認済み</Badge>
       </div>
-      {isGitHubPages(site.host) && (
+      {verifiedMode === "public" && (
         <p className="rounded-xl bg-warn/10 px-3 py-2 text-xs text-amber-800">
-          GitHub Pages は、サーバーで動くプログラムを置けないため、下の組み込みコードを動かせません。
-          所有確認は済んでいますが、攻撃を検査して守るには、Node.js や Python などサーバーで動くサイトが必要です。
+          <b>合言葉のファイルは今も外から見える状態です。</b>確認は済んだので、もう消してください（悪用はできませんが、AgentGuard を使っていることが分かってしまいます）。
         </p>
       )}
-
-      {freshKey ? (
-        <div ref={keyBox} className="rounded-2xl border border-warn/40 bg-warn/10 p-3">
-          <p className="text-xs font-bold text-amber-700">所有を確認しました。次は取り込みキーを設定します（この画面を離れると二度と表示されません）</p>
-          <p className="mt-1 text-xs text-muted">サイトの環境変数 <code className="font-mono">AGENTGUARD_INGEST_KEY</code> に設定し、下の組み込みコードをサイトに入れてください。</p>
-          <div className="mt-2"><CopyField value={freshKey} label="取り込みキー" /></div>
-          <ul className="mt-2 list-disc space-y-0.5 pl-5 text-[11px] text-muted">
-            <li><b className="text-ink">取り込みキーは秘密です。</b>HTML・公開リポジトリ・ブラウザで動くコードには書かず、サーバーの環境変数にだけ置いてください。</li>
-            {freshMode === "public" && (
-              <li><b className="text-ink">合言葉のファイルは今も外から見える状態です。</b>確認は済んだので、もう消してください（悪用はできませんが、AgentGuard を使っていることが分かってしまいます）。</li>
-            )}
-            {freshMode === "private" && <li>合言葉は外に出さずに確認できました。確認用のコードと環境変数は、そのまま残しても消しても構いません。</li>}
-          </ul>
-        </div>
+      {staticSite ? (
+        <p className="rounded-xl bg-warn/10 px-3 py-2 text-xs text-amber-800">
+          GitHub Pages は、サーバーで動くプログラムを置けないため、組み込みコードを動かせません。
+          所有確認は済んでいますが、攻撃を検査して守るには、Node.js や Python などサーバーで動くサイトが必要です。
+        </p>
       ) : (
-        <p className="text-xs text-muted">取り込みキー：<code className="font-mono">ag_…{keyHint}</code>（再発行は「別のサイトに変更」から）</p>
+        <>
+          <ConnectionStatus />
+          <KeyBox connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} />
+          <div>
+            <p className="mb-1 text-xs font-bold text-ink">組み込みコード（サイトに入れたままにします）</p>
+            <IntegrationCode framework={framework} onFramework={setFramework} basePath={site.path ?? ""} />
+          </div>
+          <p className="text-xs text-muted">
+            各アクセスが AgentGuard で検査され、攻撃はこのダッシュボードに表示されます。AgentGuard に届かないときはサイトを止めずに通します。
+          </p>
+        </>
       )}
-
-      <div className="rounded-2xl border border-line">
-        <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-          <span className="text-xs font-bold text-ink">組み込みコード</span>
-          <div className="flex-1" />
-          {(["node", "python"] as const).map((l) => (
-            <button key={l} onClick={() => setLang(l)}
-                    className={cx("rounded-lg px-2 py-1 text-xs font-semibold", lang === l ? "bg-brand/10 text-brand" : "text-muted hover:bg-slate-100")}>
-              {l === "node" ? "Node.js" : "Python"}
-            </button>
-          ))}
-        </div>
-        <pre className="overflow-x-auto p-3 text-[11px] leading-relaxed"><code>{snippet(lang, ingestUrl)}</code></pre>
-      </div>
-      <p className="text-xs text-muted">
-        このコードを自分のサイトに入れると、各リクエストが AgentGuard で検査され、攻撃はこのダッシュボードに表示されます。
-        AgentGuard に届かないときはサイトを止めずそのまま通します（フェイルオープン）。
-      </p>
-
       <Button variant="ghost" disabled={busy} onClick={remove}><Trash2 size={14} /> 保護をやめる / 別のサイトに変更</Button>
     </div>
   );
 }
 
+
+
+
 export function SiteCard() {
+  const { api } = useSession();
   const tenant = useTenant().data;
   const site = tenant?.site;
-  // The ingest key is returned once by verify; held here (SiteCard stays mounted across the
-  // pending -> verified transition) and shown until the owner reloads.
-  const [freshKey, setFreshKey] = useState<string | null>(null);
-  const [freshMode, setFreshMode] = useState<"private" | "public" | "dns" | null>(null);
+  // The connection key is returned once (on registration, re-issue, or first verification of an
+  // older registration). SiteCard stays mounted across pending -> verified, so it is kept here.
+  const [connectionKey, setConnectionKey] = useState<string | null>(null);
+  const [verifiedMode, setVerifiedMode] = useState<"connected" | "private" | "public" | "dns" | null>(null);
+
+  async function rotate() {
+    const r = await api<{ connectionKey: string }>("/api/site", { body: { action: "rotate" } });
+    setConnectionKey(r.connectionKey);
+  }
 
   return (
     <Card>
@@ -194,11 +128,13 @@ export function SiteCard() {
                   sub="あなたのサイトを登録して守ります（所有確認が必要・1つまで）" />
       <div className="p-5">
         {!site ? (
-          <RegisterForm />
+          <RegisterForm onRegistered={setConnectionKey} />
         ) : site.status === "pending" ? (
-          <VerifyWizard site={site} onVerified={(key, mode) => { setFreshKey(key); setFreshMode(mode); }} />
+          <VerifyWizard site={site} connectionKey={connectionKey} keyHint={tenant?.ingestKeyHint} onRotate={rotate}
+                        onVerified={(key, mode) => { if (key) setConnectionKey(key); setVerifiedMode(mode); }} />
         ) : (
-          <VerifiedPanel site={site} keyHint={tenant?.ingestKeyHint} freshKey={freshKey} freshMode={freshMode} />
+          <VerifiedPanel site={site} keyHint={tenant?.ingestKeyHint} connectionKey={connectionKey}
+                         verifiedMode={verifiedMode} onRotate={rotate} />
         )}
         <div className="mt-4 flex items-start gap-2 text-xs text-muted">
           <ShieldCheck size={14} className="mt-0.5 shrink-0 text-safe" />
