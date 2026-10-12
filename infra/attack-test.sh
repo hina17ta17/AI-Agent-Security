@@ -34,4 +34,4 @@ fi
 
 g builds submit --no-source --config="$ROOT/infra/attack-test.yaml" --region="$REGION" --project "$PROJECT_ID" \
   --service-account="projects/$PROJECT_ID/serviceAccounts/sa-build@$PROJECT_ID.iam.gserviceaccount.com" \
-  --substitutions="_SITE=$SITE" 2>&1 | grep -E "^(==|--|ふつう|SQL|XSS|パス|AI)|ERROR" || true
+  --substitutions="_SITE=$SITE" 2>&1 | grep -E -- "== AgentGuard|-- [0-9]\.| -> |ERROR" || true
