@@ -13,7 +13,10 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Iterable
 
-MAX_FIELD_CHARS = 4096  # longer values are truncated before matching
+# The whole value is inspected (up to the ingest limit), so an attack hidden after a long run of
+# padding cannot slip through. Every pattern below stays linear on long input (no unbounded
+# backtracking), so a crafted value cannot make Mihari slow either.
+MAX_FIELD_CHARS = 64 * 1024
 PAYLOAD_PREVIEW_CHARS = 2048  # what is forwarded to the AI team
 
 
@@ -42,7 +45,7 @@ def _r(pattern: str) -> re.Pattern[str]:
 RULES: tuple[Rule, ...] = (
     # --- SQL injection
     Rule("sqli-tautology", "sqli", "SQLインジェクション（常に真になる条件）",
-         _r(r"['\"`]\s*(or|and|\|\||&&)\s*['\"`]?\s*\w+\s*['\"`]?\s*(=|like)\s*['\"`]?\s*\w+")),
+         _r(r"['\"`]\s*(or|and|\|\||&&)\s*['\"`]?\s*\w+\s*['\"`]?\s*(=|like)\s*['\"`]?\s*\w")),
     Rule("sqli-tautology-bare", "sqli", "SQLインジェクション（常に真になる条件）",
          _r(r"\b(or|and)\s+(\d+)\s*=\s*\2\b")),
     Rule("sqli-union", "sqli", "SQLインジェクション（UNION SELECT）",
@@ -57,7 +60,8 @@ RULES: tuple[Rule, ...] = (
          _r(r"\binformation_schema\b|\bsqlite_master\b|\bpg_catalog\b")),
     # --- Cross-site scripting
     Rule("xss-script", "xss", "XSS（scriptタグの埋め込み）", _r(r"<\s*script\b")),
-    Rule("xss-handler", "xss", "XSS（イベントハンドラの埋め込み）", _r(r"<[^>]*\bon[a-z]+\s*=")),
+    # [^<>] rather than [^>]: each scan stops at the next "<", so a flood of "<" stays linear.
+    Rule("xss-handler", "xss", "XSS（イベントハンドラの埋め込み）", _r(r"<[^<>]*\bon[a-z]+\s*=")),
     Rule("xss-js-uri", "xss", "XSS（javascript: スキーム）", _r(r"javascript\s*:")),
     Rule("xss-embed", "xss", "XSS（iframe / svg などの埋め込み）", _r(r"<\s*(iframe|svg|object|embed)\b")),
     Rule("xss-cookie", "xss", "XSS（Cookie の窃取）", _r(r"document\s*\.\s*cookie")),
@@ -73,8 +77,25 @@ RULES: tuple[Rule, ...] = (
          _r(r"/etc/(passwd|shadow|hosts)\b|\bwin\.ini\b|\bboot\.ini\b|/proc/self/environ")),
 )
 
-_SQL_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 _WHITESPACE = re.compile(r"\s+")
+
+
+def _strip_sql_comments(text: str) -> str:
+    """Replace /* ... */ with a space in one linear pass.
+
+    A regex such as /\\*.*?\\*/ rescans to the end for every unclosed "/*", which is quadratic on
+    crafted input.
+    """
+    out, i = [], 0
+    while (start := text.find("/*", i)) != -1:
+        end = text.find("*/", start + 2)
+        if end == -1:
+            break
+        out.append(text[i:start])
+        out.append(" ")
+        i = end + 2
+    out.append(text[i:])
+    return "".join(out)
 
 
 def normalize(value: str) -> str:
@@ -87,7 +108,7 @@ def normalize(value: str) -> str:
         text = decoded
     text = html.unescape(text)
     text = text.replace("\x00", "")
-    text = _SQL_COMMENT.sub(" ", text)  # UN/**/ION SEL/**/ECT
+    text = _strip_sql_comments(text)  # UN/**/ION SEL/**/ECT
     text = _WHITESPACE.sub(" ", text)
     return text
 

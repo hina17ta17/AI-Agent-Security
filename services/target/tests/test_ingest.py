@@ -1,5 +1,6 @@
 """The ingest endpoint: a registered site (ingest key) or the simulator (SA token) reports a request."""
 
+import json
 import hashlib
 from datetime import datetime, timedelta, timezone
 
@@ -213,3 +214,31 @@ def test_simulated_reports_do_not_count_as_a_connection(env):
     client.post("/ingest", json={"path": "/", "simulated": True, "tenantId": TENANT, "ip": SIM_IP},
                 headers={"authorization": "Bearer good-sa-token"})
     assert store.reports == []
+
+
+# ---------------------------------------------------------------------------- reports are never refused for their shape
+
+def test_a_repeated_parameter_is_inspected(env):
+    # Express turns ?q=a&q=b into an array; refusing that report let the attack through (fail-open).
+    client, _, _ = env
+    r = client.post("/ingest", json={"path": "/", "query": {"q": ["ok", "1' OR '1'='1"]}, "ip": "198.51.100.9"},
+                    headers=key_auth())
+    assert r.status_code == 200 and r.json()["decision"] == "block"
+
+
+def test_a_very_long_path_is_inspected_not_refused(env):
+    client, _, _ = env
+    r = client.post("/ingest", json={"path": "/" + "a" * 3000 + "/../../etc/passwd", "ip": "198.51.100.9"},
+                    headers=key_auth())
+    assert r.status_code == 200 and r.json()["decision"] == "block"
+
+
+def test_deeply_nested_and_far_json_values_are_inspected(env):
+    client, _, _ = env
+    deep = {"a": {"b": {"c": {"d": {"e": {"f": {"g": "<script>alert(1)</script>"}}}}}}}
+    far = {"items": ["ok"] * 150 + ["1' OR '1'='1"]}
+    for body in (deep, far):
+        r = client.post("/ingest", json={"method": "POST", "path": "/api", "ip": "198.51.100.9",
+                                         "headers": {"content-type": "application/json"}, "body": json.dumps(body)},
+                        headers=key_auth())
+        assert r.json()["decision"] == "block", body

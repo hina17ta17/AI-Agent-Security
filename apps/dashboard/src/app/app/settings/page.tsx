@@ -157,7 +157,14 @@ function AllowlistEditor({ initial }: { initial: string }) {
                   placeholder={"例）\n203.0.113.0/24\n2001:db8::/32"}
                   className="w-full rounded-xl border border-line bg-white p-3 font-mono text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
         <Button className="mt-2" disabled={act.busy}
-                onClick={() => act.run(() => api("/api/settings", { body: { allowlist: text.split(/\s+/).filter(Boolean) } }), "許可リストを保存しました。")}>
+                onClick={() => act.run(async () => {
+                  const entries = text.split(/\s+/).filter(Boolean);
+                  // Checked here first: a stray symbol sent to the server could look like an attack
+                  // to AgentGuard's own protection and get this browser's address blocked.
+                  const odd = entries.filter((e) => !/^[0-9a-fA-F:.]+(\/\d{1,3})?$/.test(e));
+                  if (odd.length) throw new Error(`IPアドレスか範囲（例：203.0.113.0/24）で入力してください：${odd.slice(0, 3).join("、")}`);
+                  await api("/api/settings", { body: { allowlist: entries } });
+                }, "許可リストを保存しました。")}>
           保存する
         </Button>
         <Note m={act.message} />
@@ -192,10 +199,12 @@ function MaintenanceCard() {
 }
 
 function LoginSecurityCard() {
-  const { api } = useSession();
-  const { signOut } = useAuth();
+  const { api, user } = useSession();
+  const { signOut, resetPassword } = useAuth();
   const logins = useLogins(10).data;
   const act = useAction();
+  // Google accounts change their password at Google; email accounts get a reset mail.
+  const passwordAccount = user.providerData.some((p) => p.providerId === "password") && !!user.email;
 
   async function signOutEverywhere() {
     if (!window.confirm("すべての端末（この端末も含む）からログアウトします。よろしいですか？")) return;
@@ -225,9 +234,22 @@ function LoginSecurityCard() {
             ))}
           </ul>
         )}
-        <Button variant="danger" className="mt-4" disabled={act.busy} onClick={signOutEverywhere}>
-          <LogOut size={14} /> すべての端末からログアウト
-        </Button>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button variant="danger" disabled={act.busy} onClick={signOutEverywhere}>
+            <LogOut size={14} /> すべての端末からログアウト
+          </Button>
+          {passwordAccount ? (
+            <Button variant="ghost" disabled={act.busy}
+                    onClick={() => act.run(() => resetPassword(user.email!), `${user.email} に、パスワードを変更するためのメールを送りました。`)}>
+              <KeyRound size={14} /> パスワードを変更する（メールで案内）
+            </Button>
+          ) : (
+            <a href="https://myaccount.google.com/security" target="_blank" rel="noreferrer"
+               className="inline-flex items-center gap-1 self-center text-xs font-semibold text-brand hover:underline">
+              Google アカウントのパスワードを変更する <ExternalLink size={12} />
+            </a>
+          )}
+        </div>
         <Note m={act.message} />
         <ul className="mt-4 space-y-2 text-xs leading-relaxed text-muted">
           <li className="flex gap-2"><ShieldCheck size={14} className="mt-0.5 shrink-0 text-safe" />

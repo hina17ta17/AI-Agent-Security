@@ -1,7 +1,9 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { lookup as lookupCallback, type LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { resolveTxt } from "node:dns/promises";
-import { isIP } from "node:net";
+import { request as httpsRequest } from "node:https";
+import { isIP, type LookupFunction } from "node:net";
 
 import { HttpError } from "./http";
 
@@ -121,6 +123,50 @@ async function assertPublicHost(host: string): Promise<void> {
   }
 }
 
+/**
+ * The address check again at connect time. assertPublicHost() runs before the fetch, but a name can
+ * answer differently a moment later (DNS rebinding); resolving here, inside the connection itself,
+ * means the address actually connected to is the one that was checked.
+ */
+const publicOnlyLookup = ((hostname: string, options: { all?: boolean }, callback: (...args: unknown[]) => void) => {
+  lookupCallback(hostname, { all: true }, (err, addresses: LookupAddress[]) => {
+    if (err) return callback(err);
+    if (!addresses.length || addresses.some((a) => isPrivateAddress(a.address))) {
+      return callback(Object.assign(new Error("refused: internal address"), { code: "EADDRNOTAVAIL" }));
+    }
+    if (options?.all) return callback(null, addresses);
+    callback(null, addresses[0].address, addresses[0].family);
+  });
+}) as unknown as LookupFunction;
+
+/** One GET over https to a checked public address: no redirects followed, tiny body, hard timeout. */
+function getOnce(url: string): Promise<{ status: number; location: string | null; text: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpsRequest(url, {
+      method: "GET",
+      lookup: publicOnlyLookup,
+      headers: { "user-agent": "AgentGuard-SiteVerify/1.0", accept: "text/plain" },
+    }, (res) => {
+      let text = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk: string) => {
+        text += chunk;
+        if (text.length > MAX_BODY) res.destroy();
+      });
+      res.on("error", () => {}); // a dropped connection ends in "close" below
+      res.on("close", () => resolve({
+        status: res.statusCode ?? 0,
+        location: typeof res.headers.location === "string" ? res.headers.location : null,
+        text: text.slice(0, MAX_BODY),
+      }));
+    });
+    const timer = setTimeout(() => req.destroy(new Error("timeout")), FETCH_TIMEOUT_MS);
+    req.on("close", () => clearTimeout(timer));
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 /** Why a check failed, so the owner knows what to fix. */
 export type CheckResult =
   | { ok: true; mode?: "connected" | "private" | "public" }
@@ -158,32 +204,21 @@ function sameText(a: string, b: string): boolean {
  */
 export async function checkFile(host: string, path: string, token: string,
                                 verifySecrets: string[] = []): Promise<CheckResult> {
-  await assertPublicHost(host);
+  await assertPublicHost(host); // early, clear error; the connection checks the address again
   const challenge = randomBytes(16).toString("hex");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(`https://${host}${path}${WELL_KNOWN}?challenge=${challenge}`, {
-      method: "GET",
-      redirect: "manual", // a redirect could point back at an internal address: report it instead
-      signal: controller.signal,
-      headers: { "user-agent": "AgentGuard-SiteVerify/1.0", accept: "text/plain" },
-      cache: "no-store",
-    });
+    // A redirect could point back at an internal address: it is reported, never followed.
+    const res = await getOnce(`https://${host}${path}${WELL_KNOWN}?challenge=${challenge}`);
     if (res.status >= 300 && res.status < 400) {
-      return { ok: false, reason: "redirect", status: res.status,
-               location: (res.headers.get("location") ?? "").slice(0, 200) || undefined };
+      return { ok: false, reason: "redirect", status: res.status, location: (res.location ?? "").slice(0, 200) || undefined };
     }
-    if (!res.ok) return { ok: false, reason: "not_found", status: res.status };
-    const text = (await res.text()).slice(0, MAX_BODY);
-    const answer = text.trim();
+    if (res.status < 200 || res.status >= 300) return { ok: false, reason: "not_found", status: res.status };
+    const answer = res.text.trim();
     if (verifySecrets.some((v) => sameText(answer, connectedAnswer(v, challenge)))) return { ok: true, mode: "connected" };
     if (sameText(answer, challengeAnswer(token, challenge))) return { ok: true, mode: "private" };
-    return text.includes(token) ? { ok: true, mode: "public" } : { ok: false, reason: "mismatch" };
+    return res.text.includes(token) ? { ok: true, mode: "public" } : { ok: false, reason: "mismatch" };
   } catch {
     return { ok: false, reason: "unreachable" };
-  } finally {
-    clearTimeout(timer);
   }
 }
 

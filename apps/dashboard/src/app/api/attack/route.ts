@@ -59,7 +59,7 @@ function summarize(kind: BulkKind, results: (AttackResult | null)[]) {
   };
 }
 
-/** Sends simulated requests to the caller's OWN demo site. Arbitrary targets are impossible. */
+/** Reports synthetic attacks for the caller's own tenant. No request ever reaches a real site. */
 export async function POST(request: Request) {
   return handle("attack", async () => {
     const { uid } = await requireUser(request);

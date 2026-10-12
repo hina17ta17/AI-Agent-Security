@@ -49,7 +49,7 @@ class Store:
         self._keys = _TTLCache()
         self._reports = _TTLCache()
         self._self_checked = 0
-        self._self_flushed = 0.0
+        self._self_flushed = float("-inf")  # the first report is written at once
 
     async def note_site_report(self, tenant_id: str) -> None:
         """Let the dashboard show "your site is connected": record the last report, at most once a minute."""

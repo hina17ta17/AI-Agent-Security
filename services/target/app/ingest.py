@@ -16,18 +16,36 @@ import hashlib
 import json
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from . import waf
 from .net import is_documentation_ip, parse_ip
 
+MAX_TEXT = waf.MAX_FIELD_CHARS  # longer paths / bodies / values are cut to this, never refused
+MAX_ITEMS = 100  # JSON items looked at one by one; the rest is inspected as raw text
+
+
+def _text(value: Any) -> str:
+    if isinstance(value, str):
+        return value[:MAX_TEXT]
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)[:MAX_TEXT]
+    return str(value)[:MAX_TEXT]
+
 
 class IngestRequest(BaseModel):
-    method: str = Field(default="GET", max_length=10)
-    path: str = Field(default="/", max_length=2048)
-    query: dict[str, str] = Field(default_factory=dict)
-    headers: dict[str, str] = Field(default_factory=dict)
-    body: str = Field(default="", max_length=64 * 1024)
+    """A reported request. Oversized or oddly shaped fields are cut down rather than rejected:
+    the integration code lets a request through when AgentGuard refuses the report (fail-open), so
+    a refusal would let an attacker pass just by sending a long path or a repeated parameter."""
+
+    method: str = "GET"
+    path: str = "/"
+    # Values may be lists or objects (Express parses ?q=a&q=b as an array, ?q[x]=1 as an object).
+    query: dict[str, Any] = Field(default_factory=dict)
+    headers: dict[str, Any] = Field(default_factory=dict)
+    body: str = ""
     ip: str | None = None
     # Only honored on the simulator (service-account) path:
     tenantId: str | None = None
@@ -35,21 +53,40 @@ class IngestRequest(BaseModel):
     # AgentGuard's own dashboard reporting its traffic (service-account path; tenant fixed by config).
     agentguardSelf: bool = False
 
+    @field_validator("method", "path", "body", mode="before")
+    @classmethod
+    def _clip(cls, value: Any) -> str:
+        return _text(value)
+
+    @field_validator("ip", mode="before")
+    @classmethod
+    def _ip_text(cls, value: Any) -> str | None:
+        return None if value is None else _text(value)[:64]
+
 
 def hash_key(key: str) -> str:
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 def _flatten_json(value: Any, prefix: str = "json", depth: int = 0):
+    """Every string in a JSON value, with its field name. Past the depth or item limits the rest is
+    inspected as raw text, so nesting deeply or putting the attack in item 101 hides nothing."""
     if depth > 5:
-        return
+        if isinstance(value, (dict, list)):
+            yield (prefix, _text(value))
+            return
     if isinstance(value, dict):
-        for k, v in list(value.items())[:100]:
+        items = list(value.items())
+        for k, v in items[:MAX_ITEMS]:
             yield ("json-key", str(k))
             yield from _flatten_json(v, f"{prefix}.{k}", depth + 1)
+        if len(items) > MAX_ITEMS:
+            yield (prefix, _text(dict(items[MAX_ITEMS:])))
     elif isinstance(value, list):
-        for v in value[:100]:
+        for v in value[:MAX_ITEMS]:
             yield from _flatten_json(v, prefix, depth + 1)
+        if len(value) > MAX_ITEMS:
+            yield (prefix, _text(value[MAX_ITEMS:]))
     elif isinstance(value, str):
         yield (prefix, value)
 
@@ -57,16 +94,22 @@ def _flatten_json(value: Any, prefix: str = "json", depth: int = 0):
 def fields_from_payload(req: IngestRequest) -> list[tuple[str, str]]:
     """Build the (field_name, value) pairs Mihari inspects, from the reported request."""
     fields: list[tuple[str, str]] = [("path", req.path)]
-    for key, value in req.query.items():
+    params = list(req.query.items())
+    for key, value in params[:MAX_ITEMS]:
         fields.append(("query-name", str(key)))
-        fields.append((f"query:{key}", str(value)))
+        if isinstance(value, (dict, list)):
+            fields.extend(_flatten_json(value, f"query:{key}"))
+        else:
+            fields.append((f"query:{key}", _text(value)))
+    if len(params) > MAX_ITEMS:
+        fields.append(("query", _text(dict(params[MAX_ITEMS:]))))
     content_type = ""
     for name, value in req.headers.items():
-        lname = name.lower()
+        lname = str(name).lower()
         if lname == "content-type":
-            content_type = value
+            content_type = _text(value)
         if lname in ("user-agent", "referer", "x-forwarded-for", "cookie"):
-            fields.append((f"header:{lname}", str(value)))
+            fields.append((f"header:{lname}", _text(value)))
     if req.body:
         if "application/json" in content_type:
             try:

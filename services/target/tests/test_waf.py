@@ -73,3 +73,17 @@ def test_ai_targeted_payload_is_still_caught_as_sqli():
     detection = waf.inspect_value("query:q", payload)
     assert detection is not None
     assert detection.attack_type == "sqli"
+
+
+def test_an_attack_after_long_padding_is_still_caught():
+    # Only the first 4 KiB used to be inspected, so padding hid the attack.
+    assert waf.inspect_value("query:q", "A" * 5000 + "' OR '1'='1") is not None
+
+
+@pytest.mark.parametrize("crafted", ["<" * 65536, "/*" * 32768, "$(" * 32768, "`" * 65536, "; " * 32768],
+                         ids=["lt", "comment", "subst", "backtick", "semicolon"])
+def test_crafted_long_input_stays_fast(crafted):
+    import time
+    started = time.perf_counter()
+    waf.inspect_value("query:q", crafted)
+    assert time.perf_counter() - started < 0.5

@@ -4,6 +4,7 @@ import {
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut as fbSignOut,
@@ -25,6 +26,8 @@ type AuthApi = {
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string) => Promise<void>;
+  /** Firebase mails a link to set a new password (also how a signed-in user changes it). */
+  resetPassword: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   api: <T>(path: string, init?: { method?: string; body?: unknown }) => Promise<T>;
 };
@@ -37,12 +40,13 @@ const AUTH_ERRORS: Record<string, string> = {
   "auth/user-not-found": "メールアドレスまたはパスワードが違います。",
   "auth/wrong-password": "メールアドレスまたはパスワードが違います。",
   "auth/email-already-in-use": "このメールアドレスはすでに登録されています。ログインしてください。",
-  "auth/weak-password": "パスワードは6文字以上にしてください。",
+  "auth/weak-password": "パスワードは8文字以上にしてください。",
   "auth/popup-closed-by-user": "ログインがキャンセルされました。",
   "auth/cancelled-popup-request": "ログインがキャンセルされました。",
   "auth/popup-blocked": "ポップアップがブロックされました。ブラウザの設定を確認してください。",
   "auth/too-many-requests": "試行回数が多すぎます。しばらくしてからお試しください。",
-  "auth/unauthorized-domain": "このURLからのログインが許可されていません（Firebase の承認済みドメインへの追加が必要です）。",
+  "auth/unauthorized-domain": "いまこのURLでは Google でのログインを使えません。メールアドレスでログインしてください。",
+  "auth/missing-email": "メールアドレスを入力してください。",
   "auth/network-request-failed": "ネットワークに接続できませんでした。",
 };
 
@@ -115,6 +119,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { user } = await createUserWithEmailAndPassword(auth, email, password);
     await recordLogin(user, "signup");
   }, []);
+  const resetPassword = useCallback(async (email: string) => {
+    const { auth } = await loadFirebase();
+    auth.languageCode = "ja";
+    await sendPasswordResetEmail(auth, email);
+  }, []);
   const signOut = useCallback(async () => {
     const { auth } = await loadFirebase();
     await fbSignOut(auth);
@@ -128,8 +137,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthApi>(
-    () => ({ session, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut, api }),
-    [session, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut, api],
+    () => ({ session, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, signOut, api }),
+    [session, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, signOut, api],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

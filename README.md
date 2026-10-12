@@ -213,7 +213,7 @@ bash infra/setup-cloud.sh push https://agent-<PROJECT_NUMBER>.asia-northeast1.ru
 bash infra/deploy.sh dashboard
 ```
 
-テスト：`services/target`（54件：WAF のルールと誤検知、取り込み口の流れと認証）、`services/agent`（44件：道具の安全ルール、分岐、信頼の境界、料金計算、同時処理、障害からの回復）。仕組みの全体は [docs/agentguard-guide.html](docs/agentguard-guide.html) で説明しています
+テスト：`services/target`（63件：WAF のルールと誤検知、取り込み口の流れと認証）、`services/agent`（44件：道具の安全ルール、分岐、信頼の境界、料金計算、同時処理、障害からの回復）。仕組みの全体は [docs/agentguard-guide.html](docs/agentguard-guide.html) で説明しています
 
 ```bash
 cd services/target && uv run pytest

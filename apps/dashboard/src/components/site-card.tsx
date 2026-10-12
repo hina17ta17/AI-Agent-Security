@@ -25,7 +25,10 @@ function RegisterForm({ onRegistered }: { onRegistered: (key: string | null) => 
     setBusy(true);
     setError(null);
     try {
-      const r = await api<{ connectionKey: string | null }>("/api/site", { body: { action: "register", url } });
+      // Only the address is registered: "?..." and "#..." are dropped here, before sending, so a
+      // pasted link with odd characters is never mistaken for an attack on AgentGuard itself.
+      const clean = url.trim().replace(/[?#].*$/, "");
+      const r = await api<{ connectionKey: string | null }>("/api/site", { body: { action: "register", url: clean } });
       onRegistered(r.connectionKey);
     } catch (err) {
       setError(err instanceof Error ? err.message : "登録できませんでした");

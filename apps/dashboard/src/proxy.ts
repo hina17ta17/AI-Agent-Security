@@ -11,8 +11,10 @@ import { type NextRequest, NextResponse } from "next/server";
 
 const TIMEOUT_MS = 1500;
 const MAX_BODY = 8 * 1024;
-// Never report secrets: field names that look sensitive are masked (the Gemini API key included).
+// Never report secrets: field names that look sensitive are masked (the Gemini API key included),
+// unless the value itself looks like an attack (then it is reported so Mihari can stop it).
 const SECRET = /pass|pwd|token|secret|card|cvc|otp|key/i;
+const ATTACK = /['"`]\s*(or|and)\s|['"`]\s*(--|#)|<\s*script|\bunion\s+select\b|;\s*(drop|delete|insert|update)\s/i;
 
 let client: Promise<IdTokenClient> | null = null;
 
@@ -27,23 +29,37 @@ async function idToken(audience: string): Promise<string | null> {
   }
 }
 
-function mask(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(mask);
+function mask(value: unknown, key = ""): unknown {
+  if (Array.isArray(value)) return value.map((v) => mask(v, key));
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, SECRET.test(k) ? "[伏せ字]" : mask(v)]));
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, mask(v, k)]));
   }
-  return value;
+  return SECRET.test(key) && !(typeof value === "string" && ATTACK.test(value)) ? "[伏せ字]" : value;
 }
 
-/** Small JSON bodies of API calls are inspected too (read from a clone; the route still gets the body). */
+/** Every value of a repeated parameter (?q=a&q=b), not just the last one. */
+function queryOf(params: URLSearchParams): unknown {
+  const query: Record<string, unknown> = {};
+  for (const [k, v] of params) {
+    const prev = query[k];
+    query[k] = prev === undefined ? v : [...(Array.isArray(prev) ? prev : [prev]), v];
+  }
+  return mask(query);
+}
+
+/**
+ * API bodies are inspected too (read from a clone; the route still gets the body). The routes parse
+ * any body as JSON whatever its content-type, so neither the content-type nor a missing
+ * content-length may skip the inspection; bodies the routes would refuse as too large are skipped.
+ */
 async function reportedBody(request: NextRequest): Promise<string> {
   if (request.method === "GET" || request.method === "HEAD") return "";
-  const length = Number(request.headers.get("content-length") ?? "0");
-  if (!length || length > MAX_BODY || !(request.headers.get("content-type") ?? "").includes("application/json")) return "";
+  if (Number(request.headers.get("content-length") ?? "0") > MAX_BODY) return "";
   try {
-    return JSON.stringify(mask(JSON.parse(await request.clone().text())));
+    const text = await request.clone().text();
+    return text && text.length <= MAX_BODY ? JSON.stringify(mask(JSON.parse(text))) : "";
   } catch {
-    return "";
+    return ""; // not JSON: the route refuses it as well
   }
 }
 
@@ -63,8 +79,7 @@ export async function proxy(request: NextRequest) {
   try {
     const token = await idToken(target);
     if (!token) return NextResponse.next();
-    const query = Object.fromEntries(
-      [...request.nextUrl.searchParams].map(([k, v]) => [k, SECRET.test(k) ? "[伏せ字]" : v]));
+    const query = queryOf(request.nextUrl.searchParams);
     const body = await reportedBody(request);
     const res = await fetch(`${target}/ingest`, {
       method: "POST",

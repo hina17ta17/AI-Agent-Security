@@ -50,7 +50,7 @@ function label(ua: string, table: [RegExp, string][]): string | null {
   return null;
 }
 
-/** Read the client facts from the request headers (Cloud Run puts the real client first in XFF). */
+/** Read the client facts from the request headers (Cloud Run appends the real client last in XFF). */
 export function clientInfo(request: Request, uid: string): ClientInfo {
   const ua = (request.headers.get("user-agent") ?? "").slice(0, 400);
   const browser = label(ua, BROWSERS) ?? "不明なブラウザ";

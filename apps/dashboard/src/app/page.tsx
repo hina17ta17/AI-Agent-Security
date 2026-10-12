@@ -32,12 +32,27 @@ function GoogleMark() {
 }
 
 function LoginCard() {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
+  const { signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  async function forgot() {
+    setError(null);
+    setNotice(null);
+    if (!email.includes("@")) return setError("先にメールアドレスを入力してください。");
+    try {
+      await resetPassword(email);
+    } catch (e) {
+      const code = (e as { code?: string })?.code;
+      if (code !== "auth/user-not-found") return setError(authErrorMessage(e));
+    }
+    // Same answer whether or not the address is registered (do not reveal who has an account).
+    setNotice("登録されているアドレスなら、パスワードを設定し直すメールを送りました。届いたメールのリンクから新しいパスワードを決めてください。");
+  }
 
   async function run(fn: () => Promise<void>) {
     setBusy(true);
@@ -67,8 +82,8 @@ function LoginCard() {
       <form onSubmit={submit} className="space-y-2">
         <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="メールアドレス"
                className="h-11 w-full rounded-xl border border-line px-4 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
-        <input type="password" required minLength={6} autoComplete={mode === "login" ? "current-password" : "new-password"} value={password}
-               onChange={(e) => setPassword(e.target.value)} placeholder="パスワード（6文字以上）"
+        <input type="password" required minLength={mode === "login" ? 6 : 8} autoComplete={mode === "login" ? "current-password" : "new-password"} value={password}
+               onChange={(e) => setPassword(e.target.value)} placeholder={mode === "login" ? "パスワード" : "パスワード（8文字以上）"}
                className="h-11 w-full rounded-xl border border-line px-4 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
         <Button type="submit" className="w-full" disabled={busy}>
           {busy ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
@@ -76,9 +91,17 @@ function LoginCard() {
         </Button>
       </form>
       {error && <p className="mt-3 text-xs text-rose-600" role="alert">{error}</p>}
-      <button className="mt-3 text-xs font-semibold text-brand hover:underline" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
-        {mode === "login" ? "はじめての方は新規登録" : "登録済みの方はログイン"}
-      </button>
+      {notice && <p className="mt-3 text-xs text-emerald-700" role="status">{notice}</p>}
+      <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs font-semibold">
+        <button className="text-brand hover:underline" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
+          {mode === "login" ? "はじめての方は新規登録" : "登録済みの方はログイン"}
+        </button>
+        {mode === "login" && (
+          <button className="text-muted hover:text-brand hover:underline" onClick={() => void forgot()}>
+            パスワードを忘れた・変えたい
+          </button>
+        )}
+      </div>
     </div>
   );
 }

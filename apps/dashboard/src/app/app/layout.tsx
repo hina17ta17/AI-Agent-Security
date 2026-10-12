@@ -56,7 +56,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <div>
           <p className="font-display text-lg font-bold">読み込めませんでした</p>
           <p className="mt-1 text-sm text-muted">{session.message}</p>
-          <Button className="mt-4" onClick={() => window.location.reload()}>再読み込み</Button>
+          {/* After "sign out everywhere" this device's session is refused for good: reloading cannot
+              help, so offer a way back to the login screen. */}
+          <div className="mt-4 flex justify-center gap-2">
+            <Button onClick={() => window.location.reload()}>再読み込み</Button>
+            <Button variant="ghost" onClick={() => void signOut().then(() => router.replace("/"))}>ログインし直す</Button>
+          </div>
         </div>
       </div>
     );

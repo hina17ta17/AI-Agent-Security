@@ -15,7 +15,8 @@ class Settings:
     events_topic: str
     dashboard_sa: str  # only this identity may attach a simulated source IP
     sim_audience: str | None  # expected ID-token audience; defaults to https://<Host>
-    max_body_bytes: int = 64 * 1024
+    # Size of one report. Fields inside are cut to 64 KiB each before inspection (never refused).
+    max_body_bytes: int = 256 * 1024
     # The tenant that receives AgentGuard's own traffic (the dashboard protects itself). Fixed here,
     # never taken from a request; empty disables self-protection.
     self_tenant_id: str = ""

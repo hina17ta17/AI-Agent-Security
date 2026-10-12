@@ -371,7 +371,7 @@
         <tr><td class="path"><code>app/events.py</code></td><td>攻撃イベントを Pub/Sub に送る</td></tr>
         <tr><td class="path"><code>app/net.py</code></td><td>IPアドレスの補助と、ダッシュボードのサービスアカウントの ID トークン確認</td></tr>
         <tr><td class="path"><code>app/config.py</code> / <code>logs.py</code></td><td>設定（環境変数）と、構造化ログ</td></tr>
-        <tr><td class="path"><code>tests/</code></td><td>ルールの検知と誤検知、取り込み口の流れ、認証のテスト（54件）</td></tr>
+        <tr><td class="path"><code>tests/</code></td><td>ルールの検知と誤検知、取り込み口の流れ、認証のテスト（63件）</td></tr>
       </table></div>
 
       <h3>services/agent（AI チーム）</h3>
@@ -452,7 +452,7 @@ bash infra/setup-cloud.sh push https://agent-&lt;PROJECT_NUMBER&gt;.asia-northea
 bash infra/deploy.sh dashboard
 
 # テスト
-cd services/target &amp;&amp; uv run pytest      # 54件
+cd services/target &amp;&amp; uv run pytest      # 63件
 cd services/agent  &amp;&amp; uv run pytest      # 44件</pre>
       <div class="table-wrap"><table>
         <tr><th>Google Cloud のサービス</th><th>使い道</th></tr>

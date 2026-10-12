@@ -50,8 +50,8 @@ function SelfGuardView({ status, compact }: { status: SelfStatus; compact: boole
       </p>
       {!compact && (
         <p className="mt-1 text-xs text-muted">
-          このダッシュボードに届くアクセスも、あなたのサイトと同じように、ミハリと AI チームが1件ずつ検査しています。
-          ログイン画面への攻撃もここで止まるので、あなたのアカウント（Google アカウントでのログインを含む）も守られます。
+          このダッシュボードの画面と API に届くアクセスも、あなたのサイトと同じように、ミハリと AI チームが1件ずつ検査しています。
+          パスワードの確認そのものは Google の Firebase Authentication が行い、何度も間違えるとそこで止まります（Google アカウントでのログインも同じです）。
         </p>
       )}
       <dl className={cx("mt-3 grid grid-cols-2 gap-2 text-center", !compact && "sm:grid-cols-4")}>

@@ -3,8 +3,8 @@ import { GoogleAuth, type IdTokenClient } from "google-auth-library";
 import { env } from "./env";
 
 /**
- * The attack simulator only ever targets the tenant's own demo site on AgentGuard's target
- * service. Attacker IPs come from RFC 5737 documentation ranges (never a real person), and the
+ * The attack simulator never sends traffic to any site: it reports synthetic events to AgentGuard's
+ * own /ingest for the caller's tenant. Attacker IPs come from RFC 5737 documentation ranges (never a real person), and the
  * target trusts them only because the request carries this service account's Google ID token.
  */
 export type AttackKind = "normal" | "sqli" | "xss" | "traversal" | "ai_injection" | "cmd" | "revisit";
@@ -60,7 +60,7 @@ async function simToken(): Promise<string | null> {
     return headers.get("authorization")?.replace(/^Bearer /, "") ?? null;
   } catch {
     idClient = null;
-    return null; // without a token the target uses the real source IP instead
+    return null; // without a token the target refuses the report (401)
   }
 }
 
