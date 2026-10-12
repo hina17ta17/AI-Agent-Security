@@ -50,6 +50,8 @@ class Store:
         self._reports = _TTLCache()
         self._self_checked = 0
         self._self_flushed = float("-inf")  # the first report is written at once
+        self._hits: dict[tuple[str, str], int] = {}  # requests from blocked IPs, not yet written
+        self._hits_flushed: dict[tuple[str, str], float] = {}
 
     async def note_site_report(self, tenant_id: str) -> None:
         """Let the dashboard show "your site is connected": record the last report, at most once a minute."""
@@ -116,6 +118,25 @@ class Store:
         return entry
 
     async def count_blocked_hit(self, tenant_id: str, ip: str) -> None:
-        await self._block_ref(tenant_id, ip).update(
-            {"hits": firestore.Increment(1), "lastHitAt": firestore.SERVER_TIMESTAMP}
-        )
+        """Count a request from a blocked IP ("ブロック後のアクセス n回"), at most one write per 10 s.
+
+        A blocked attacker who floods requests must not turn this counter into errors: the block
+        decision is returned only after it, and an error there would let the request through
+        (the site's code fails open). So the count is buffered and a failed write is ignored.
+        """
+        key = (tenant_id, ip)
+        if len(self._hits) > 5000:
+            self._hits.clear()  # a bounded buffer: losing some counts is fine
+        self._hits[key] = self._hits.get(key, 0) + 1
+        now = time.monotonic()
+        if now - self._hits_flushed.get(key, float("-inf")) < 10:
+            return
+        hits = self._hits.pop(key)
+        self._hits_flushed[key] = now
+        if len(self._hits_flushed) > 5000:
+            self._hits_flushed.clear()
+        try:
+            await self._block_ref(tenant_id, ip).update(
+                {"hits": firestore.Increment(hits), "lastHitAt": firestore.SERVER_TIMESTAMP})
+        except Exception:
+            pass  # only a counter (and the block may have just been lifted): never fail the decision

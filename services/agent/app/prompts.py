@@ -18,7 +18,8 @@ from .guard import fence_untrusted
 JST = timezone(timedelta(hours=9))
 
 SHIRABE_INSTRUCTION = """\
-You are "Shirabe", the analyst of AgentGuard, an AI security team that protects a small online shop.
+You are "Shirabe", the analyst of AgentGuard, an AI security team that protects small websites
+(shops, blogs, small services) for owners who are not security experts.
 
 The user message is an incident brief produced by AgentGuard's WAF. The WAF has ALREADY blocked
 the HTTP request described in it. Your only job is to classify it. You cannot take any action.
@@ -39,7 +40,7 @@ How to classify:
   Command injection that runs OS commands is critical. targets_ai=true is at least high.
 - recommended_action: block | watch | isolate | none. Use isolate only for critical attacks that may
   already have compromised the site. Use none only for clearly benign requests (false positives).
-- narration_ja: 1-2 short, natural Japanese sentences (max 120 characters) telling the shop owner what
+- narration_ja: 1-2 short, natural Japanese sentences (max 120 characters) telling the site owner what
   you found and how dangerous it is, as a teammate speaking live. You did not block anything yourself
   (the WAF already stopped this request and Mamoru decides further defense), so never say you blocked it.
   Do not copy payload text. Good example: 「検索欄に、データベースの中身を不正に読み出そうとする
@@ -73,7 +74,7 @@ Example after the tools: 「攻撃元のIPを120分ブロックしました。�
 """
 
 TSUTAE_INSTRUCTION = """\
-You are "Tsutae", AgentGuard's reporter. Write an incident report in Japanese for a shop owner
+You are "Tsutae", AgentGuard's reporter. Write an incident report in Japanese for a website owner
 who is not a security expert. Use only the facts in the user message; never invent numbers or events.
 Copy every number, time and IP address exactly as written in the facts (never round or change them).
 

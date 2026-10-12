@@ -1,13 +1,14 @@
 "use client";
 
 import { Cpu, ExternalLink, Globe, KeyRound, Lock, LogOut, ShieldCheck, Trash2, UserCheck, Wrench } from "lucide-react";
+import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
 import { SiteCard } from "@/components/site-card";
 import { Badge, Button, Card, CardHeader, cx } from "@/components/ui";
 import { useAuth, useSession } from "@/lib/auth-context";
-import { dateTimeJst, remaining, toDate } from "@/lib/format";
-import { useLogins, useNow, useTenant } from "@/lib/hooks";
+import { remaining, toDate } from "@/lib/format";
+import { useNow, useTenant } from "@/lib/hooks";
 
 function useAction() {
   const [busy, setBusy] = useState(false);
@@ -201,7 +202,6 @@ function MaintenanceCard() {
 function LoginSecurityCard() {
   const { api, user } = useSession();
   const { signOut, resetPassword } = useAuth();
-  const logins = useLogins(10).data;
   const act = useAction();
   // Google accounts change their password at Google; email accounts get a reset mail.
   const passwordAccount = user.providerData.some((p) => p.providerId === "password") && !!user.email;
@@ -217,23 +217,11 @@ function LoginSecurityCard() {
   return (
     <Card>
       <CardHeader title="ログインと安全" icon={<UserCheck size={16} className="text-brand" />}
-                  sub="最近のログインを確認できます。IPアドレスは最後の部分を伏せて保存しています" />
+                  sub="ログアウトとパスワードの変更。ログインの記録は「履歴」で見られます" />
       <div className="p-5">
-        {logins.length === 0 ? (
-          <p className="text-sm text-muted">まだ記録がありません（次のログインから記録されます）。</p>
-        ) : (
-          <ul className="divide-y divide-line rounded-2xl border border-line">
-            {logins.map((l) => (
-              <li key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
-                <span className="font-mono text-xs text-muted tabular-nums">{dateTimeJst(l.at)}</span>
-                <span className="font-semibold text-ink">{l.device}</span>
-                <span className="font-mono text-xs text-muted">{l.ipPrefix}</span>
-                <span className="text-xs text-muted">{l.method}</span>
-                {l.newDevice && <Badge tone="warn">新しい端末</Badge>}
-              </li>
-            ))}
-          </ul>
-        )}
+        <Link href="/app/history?tab=logins" className="text-sm font-semibold text-brand hover:underline">
+          ログイン履歴を見る →
+        </Link>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button variant="danger" disabled={act.busy} onClick={signOutEverywhere}>
             <LogOut size={14} /> すべての端末からログアウト

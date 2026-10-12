@@ -371,7 +371,7 @@
         <tr><td class="path"><code>app/events.py</code></td><td>攻撃イベントを Pub/Sub に送る</td></tr>
         <tr><td class="path"><code>app/net.py</code></td><td>IPアドレスの補助と、ダッシュボードのサービスアカウントの ID トークン確認</td></tr>
         <tr><td class="path"><code>app/config.py</code> / <code>logs.py</code></td><td>設定（環境変数）と、構造化ログ</td></tr>
-        <tr><td class="path"><code>tests/</code></td><td>ルールの検知と誤検知、取り込み口の流れ、認証のテスト（63件）</td></tr>
+        <tr><td class="path"><code>tests/</code></td><td>ルールの検知と誤検知、取り込み口の流れ、認証のテスト（64件）</td></tr>
       </table></div>
 
       <h3>services/agent（AI チーム）</h3>
@@ -398,7 +398,8 @@
         <tr><td class="path"><code>src/app/page.tsx</code></td><td>ログイン前のトップページ（Google／メールでログイン・新規登録）</td></tr>
         <tr><td class="path"><code>src/app/app/page.tsx</code></td><td>ダッシュボード本体（状態、攻撃の波、タブ、チーム、ライブ実況、報告書、シミュレーター）</td></tr>
         <tr><td class="path"><code>src/app/app/incidents/[id]/page.tsx</code></td><td>インシデントの詳細（タイムライン、監査ログ、Cloud Trace へのリンク、費用）</td></tr>
-        <tr><td class="path"><code>src/app/app/settings/page.tsx</code></td><td>設定（守るサイト、ログインと安全、APIキー、実行モード、許可リスト）</td></tr>
+        <tr><td class="path"><code>src/app/app/history/page.tsx</code></td><td>履歴（攻撃と対応、操作の記録、ログイン履歴、AgentGuard 自身が止めた攻撃）</td></tr>
+        <tr><td class="path"><code>src/app/app/settings/page.tsx</code></td><td>設定（守るサイト、ログアウトとパスワードの変更、APIキー、実行モード、許可リスト）</td></tr>
         <tr><td class="path"><code>src/app/app/layout.tsx</code></td><td>ログイン後の共通の枠（ヘッダー、攻撃中の赤い背景、ログイン警告）</td></tr>
         <tr><td class="path"><code>src/app/api/…/route.ts</code></td><td>サーバー側の API：<code>tenant</code>（アカウント作成）、<code>session</code>（ログイン記録）、<code>security</code>（警告の確認・全端末ログアウト）、<code>site</code>（登録・所有確認・削除）、<code>attack</code>（シミュレーター）、<code>keys</code>（APIキー）、<code>mode</code>、<code>settings</code>（許可リスト）、<code>blocklist</code>（人による解除）、<code>approvals/[id]</code>（承認）、<code>config</code>（公開設定と時刻）</td></tr>
         <tr><td class="path"><code>src/components/</code></td><td>画面の部品：状態表示、チーム、ライブ実況、報告書、攻撃の波、タブ、シミュレーター、ブロック中のIP、承認バナー、ログイン警告、守るサイト（登録と所有確認の手順）など</td></tr>
@@ -452,7 +453,7 @@ bash infra/setup-cloud.sh push https://agent-&lt;PROJECT_NUMBER&gt;.asia-northea
 bash infra/deploy.sh dashboard
 
 # テスト
-cd services/target &amp;&amp; uv run pytest      # 63件
+cd services/target &amp;&amp; uv run pytest      # 64件
 cd services/agent  &amp;&amp; uv run pytest      # 44件</pre>
       <div class="table-wrap"><table>
         <tr><th>Google Cloud のサービス</th><th>使い道</th></tr>

@@ -11,31 +11,8 @@ import { LiveFeed } from "@/components/live-feed";
 import { ReportCard } from "@/components/report";
 import { TimelineBar } from "@/components/timeline-bar";
 import { Badge, Card, CardHeader, Empty } from "@/components/ui";
-import { ACTOR_LABEL, ATTACK_LABEL, dateTimeJst, SEVERITY, seconds, timeJst, yen } from "@/lib/format";
+import { ACTOR_LABEL, ATTACK_LABEL, AUDIT_ACTION, AUDIT_RESULT, dateTimeJst, SEVERITY, seconds, timeJst, yen } from "@/lib/format";
 import { useAudit, useIncident, usePendingApprovals, useSteps } from "@/lib/hooks";
-
-const AUDIT_ACTION: Record<string, string> = {
-  block_ip: "IPをブロック",
-  watch_ip: "監視リストに追加",
-  request_isolation: "サイト停止の承認を依頼",
-  incident_closed: "インシデントを完了",
-  approve_isolation: "サイト停止を承認",
-  reject_isolation: "サイト停止を却下",
-  unblock_ip: "ブロックを解除",
-};
-
-const AUDIT_RESULT: Record<string, string> = {
-  blocked: "ブロックしました",
-  watching: "監視中",
-  refused: "ルールにより拒否",
-  pending_human_approval: "人の承認待ち",
-  resolved: "解決",
-  awaiting_approval: "承認待ちで完了",
-  fallback: "ルールで対処して完了",
-  site_in_maintenance: "サイトを一時停止",
-  rejected: "却下",
-  unblocked: "解除しました",
-};
 
 function Row({ k, v }: { k: ReactNode; v: ReactNode }) {
   return (
@@ -50,11 +27,12 @@ export default function IncidentPage() {
   const { id } = useParams<{ id: string }>();
   const { data: incident, loading } = useIncident(id);
   const steps = useSteps(id).data;
-  const audit = useAudit(id).data.sort((a, b) => (a.at?.toMillis() ?? 0) - (b.at?.toMillis() ?? 0));
+  // Sorted copy: the hook's array is live state and must not be reordered in place.
+  const audit = [...useAudit(id).data].sort((a, b) => (a.at?.toMillis() ?? 0) - (b.at?.toMillis() ?? 0));
   const approvals = usePendingApprovals().data.filter((a) => a.incidentId === id);
 
   if (loading) return <Empty>読み込み中…</Empty>;
-  if (!incident) return <Empty>インシデントが見つかりません。<Link href="/app" className="text-brand">ダッシュボードへ</Link></Empty>;
+  if (!incident) return <Empty>インシデントが見つかりません。<Link href="/app/history" className="text-brand">履歴へ</Link></Empty>;
 
   const s = STATUS[incident.status] ?? STATUS.analyzing;
   const v = incident.verdict;
@@ -62,8 +40,8 @@ export default function IncidentPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/app" className="inline-flex items-center gap-1 text-sm font-semibold text-muted hover:text-ink">
-        <ArrowLeft size={16} /> ダッシュボードへ
+      <Link href="/app/history" className="inline-flex items-center gap-1 text-sm font-semibold text-muted hover:text-ink">
+        <ArrowLeft size={16} /> 履歴の一覧へ
       </Link>
       <ApprovalBanner approvals={approvals} />
 
@@ -97,7 +75,7 @@ export default function IncidentPage() {
               {v ? (
                 <>
                   <Row k="攻撃の種類" v={ATTACK_LABEL[v.attack_type] ?? v.attack_type} />
-                  <Row k="重大度" v={<Badge tone={SEVERITY[v.severity].tone}>{SEVERITY[v.severity].label}</Badge>} />
+                  <Row k="重大度" v={<Badge tone={(SEVERITY[v.severity] ?? SEVERITY.medium).tone}>{(SEVERITY[v.severity] ?? SEVERITY.medium).label}</Badge>} />
                   <Row k="確信度" v={`${Math.round(v.confidence * 100)}%`} />
                   <Row k="AIを狙った攻撃" v={v.targets_ai ? "はい" : "いいえ"} />
                   <Row k="手順（ルールで決定）" v={{ DEFEND: "防御", WATCH: "監視", DISMISS: "見送り" }[incident.route ?? "DEFEND"] ?? "—"} />
@@ -140,7 +118,7 @@ export default function IncidentPage() {
               ))}
               {incident.traceUrl && (
                 <a href={incident.traceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline">
-                  Cloud Trace で処理の流れを見る <ExternalLink size={12} />
+                  Cloud Trace で処理の流れを見る（開発者向け・Google Cloud の権限が必要） <ExternalLink size={12} />
                 </a>
               )}
             </div>

@@ -51,6 +51,7 @@ AgentGuard は、ふだんは軽量な WAF「ミハリ」が静かに見張り�
 - **BYOK（自分の Gemini APIキーで動かす）**：キーは Cloud KMS で暗号化して保存し、画面には末尾4文字しか出しません。**開発者も中身を見られません**
 - **デモモード**：キーがなくても、プロジェクトの Gemini（Agent Platform、サービスアカウント認証）で試せます（1日の回数に上限あり）
 - **監査ログとトレース**：AI と人のすべての操作を記録し、インシデントごとに Cloud Trace へのリンクを表示します
+- **履歴ページ**：攻撃と対応の一覧、AI・自動ルール・人の操作の記録、ログイン履歴、AgentGuard 自身が止めた攻撃を、ダッシュボードとは別の「履歴」ページにまとめています（ダッシュボードは「いま」だけを表示）
 
 ## AI エージェントの設計（ADK 2.x Workflow）
 
@@ -213,7 +214,7 @@ bash infra/setup-cloud.sh push https://agent-<PROJECT_NUMBER>.asia-northeast1.ru
 bash infra/deploy.sh dashboard
 ```
 
-テスト：`services/target`（63件：WAF のルールと誤検知、取り込み口の流れと認証）、`services/agent`（44件：道具の安全ルール、分岐、信頼の境界、料金計算、同時処理、障害からの回復）。仕組みの全体は [docs/agentguard-guide.html](docs/agentguard-guide.html) で説明しています
+テスト：`services/target`（64件：WAF のルールと誤検知、取り込み口の流れと認証）、`services/agent`（44件：道具の安全ルール、分岐、信頼の境界、料金計算、同時処理、障害からの回復）。仕組みの全体は [docs/agentguard-guide.html](docs/agentguard-guide.html) で説明しています
 
 ```bash
 cd services/target && uv run pytest

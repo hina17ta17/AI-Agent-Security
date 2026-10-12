@@ -1,6 +1,6 @@
 "use client";
 
-import { Bomb, Bot, FileWarning, Layers, Loader2, Repeat, ShoppingBag, Syringe, Swords, TerminalSquare, Waves } from "lucide-react";
+import { Bomb, Bot, Eye, FileWarning, Layers, Loader2, Repeat, Syringe, Swords, TerminalSquare, Waves } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { useSession } from "@/lib/auth-context";
@@ -40,7 +40,7 @@ const BULK_BUTTONS: ButtonSpec[] = [
 ];
 
 const BUTTONS: ButtonSpec[] = [
-  { kind: "normal", label: "ふつうのお客さん", desc: "商品を検索（通過するはず）", icon: <ShoppingBag size={18} />, tone: "text-emerald-600 bg-safe/10" },
+  { kind: "normal", label: "ふつうのお客さん", desc: "サイトを閲覧（通過するはず）", icon: <Eye size={18} />, tone: "text-emerald-600 bg-safe/10" },
   { kind: "sqli", label: "SQLインジェクション", desc: "データベースを不正に操作", icon: <Syringe size={18} />, tone: "text-rose-600 bg-danger/10" },
   { kind: "xss", label: "XSS", desc: "悪意あるスクリプトを埋め込む", icon: <FileWarning size={18} />, tone: "text-rose-600 bg-danger/10" },
   { kind: "traversal", label: "パストラバーサル", desc: "サーバーの重要ファイルを狙う", icon: <Swords size={18} />, tone: "text-rose-600 bg-danger/10" },

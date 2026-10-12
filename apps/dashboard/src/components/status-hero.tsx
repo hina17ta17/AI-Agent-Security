@@ -1,8 +1,9 @@
 "use client";
 
-import { ExternalLink, Layers, ShieldAlert, ShieldCheck, ShieldEllipsis, Wrench } from "lucide-react";
+import { ArrowRight, ExternalLink, Layers, ShieldAlert, ShieldCheck, ShieldEllipsis, Wrench } from "lucide-react";
 import type { Timestamp } from "firebase/firestore";
 import { motion } from "motion/react";
+import Link from "next/link";
 
 import { liveStatus } from "@/lib/activity";
 import { remaining, seconds, toDate } from "@/lib/format";
@@ -120,12 +121,12 @@ export function StatusHero({ tenant, incident, defendedAt }: {
                 守っているサイトを開く <ExternalLink size={14} />
               </a>
             ) : (
-              <a
+              <Link
                 href="/app/settings"
                 className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold text-brand hover:bg-brand/5"
               >
-                守るサイトを登録する <ExternalLink size={14} />
-              </a>
+                {tenant?.site ? "サイトとの連携を仕上げる" : "守るサイトを登録する"} <ArrowRight size={14} />
+              </Link>
             )}
           </div>
         </div>

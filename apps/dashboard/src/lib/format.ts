@@ -84,3 +84,48 @@ export const ACTOR_LABEL: Record<string, string> = {
   user: "あなた",
   system: "システム",
 };
+
+/** Every action written to tenants/{uid}/audit, by the AI team, the rules or a person. */
+export const AUDIT_ACTION: Record<string, string> = {
+  block_ip: "IPをブロック",
+  watch_ip: "監視リストに追加",
+  request_isolation: "サイト停止の承認を依頼",
+  incident_closed: "対応を完了",
+  approve_isolation: "サイト停止を承認",
+  reject_isolation: "サイト停止を却下",
+  unblock_ip: "ブロックを解除",
+  restore_site: "メンテナンスを解除",
+  register_site: "守るサイトを登録",
+  verify_site: "サイトの所有を確認",
+  remove_site: "サイトの登録をやめる",
+  rotate_connection_key: "接続キーを作り直す",
+  update_allowlist: "許可リストを更新",
+  register_api_key: "APIキーを登録",
+  delete_api_key: "APIキーを削除",
+  switch_ai_mode: "AIの実行モードを変更",
+  confirm_sign_in: "ログインを本人と確認",
+  sign_out_everywhere: "すべての端末からログアウト",
+};
+
+export const AUDIT_RESULT: Record<string, string> = {
+  blocked: "ブロックしました",
+  watching: "監視中",
+  refused: "ルールにより拒否",
+  pending_human_approval: "人の承認待ち",
+  resolved: "解決",
+  awaiting_approval: "承認待ちで完了",
+  fallback: "ルールで対処して完了",
+  site_in_maintenance: "サイトを一時停止",
+  site_normal: "通常に戻しました",
+  rejected: "却下",
+  unblocked: "解除しました",
+  pending_verification: "所有の確認待ち",
+  verified: "確認できました",
+  removed: "やめました",
+  rotated: "作り直しました",
+  ok: "完了",
+  encrypted_and_stored: "暗号化して保存",
+  deleted: "削除しました",
+  acknowledged: "確認しました",
+  all_sessions_revoked: "全端末をログアウト",
+};

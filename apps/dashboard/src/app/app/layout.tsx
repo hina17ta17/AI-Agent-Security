@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, Loader2, LogOut, Settings, Volume2, VolumeX } from "lucide-react";
+import { History, LayoutDashboard, Loader2, LogOut, Settings, Volume2, VolumeX } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect } from "react";
@@ -24,8 +24,10 @@ function Nav() {
   const item = (href: string, label: string, icon: ReactNode) => (
     <Link
       href={href}
+      aria-label={label}
+      title={label}
       className={cx(
-        "inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition",
+        "inline-flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-sm font-semibold transition sm:px-3",
         path === href ? "bg-brand/10 text-brand" : "text-muted hover:bg-slate-100 hover:text-ink",
       )}
     >
@@ -36,6 +38,7 @@ function Nav() {
   return (
     <nav className="flex items-center gap-1">
       {item("/app", "ダッシュボード", <LayoutDashboard size={16} />)}
+      {item("/app/history", "履歴", <History size={16} />)}
       {item("/app/settings", "設定", <Settings size={16} />)}
     </nav>
   );
@@ -78,7 +81,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     <div className="min-h-screen">
       <AttackBackdrop />
       <header className="sticky top-0 z-20 border-b border-line bg-white/85 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-7xl items-center gap-1.5 px-4 py-3 sm:gap-3 sm:px-6">
           <Link href="/app" aria-label="AgentGuard ダッシュボード"><Logo /></Link>
           <div className="ml-2 hidden md:block"><ModeBadge /></div>
           <div className="flex-1" />

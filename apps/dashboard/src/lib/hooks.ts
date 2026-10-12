@@ -108,6 +108,13 @@ export function useAudit(incidentId: string) {
     query(collection(db, "tenants", uid, "audit"), where("incidentId", "==", incidentId), limit(50)));
 }
 
+/** The whole audit trail (AI, rules and people), newest first. */
+export function useAuditLog(max = 50) {
+  const { db, uid } = useSession();
+  return useLiveQuery<AuditEntry>(`auditlog/${uid}/${max}`, () =>
+    query(collection(db, "tenants", uid, "audit"), orderBy("at", "desc"), limit(max)));
+}
+
 function todayJst(): string {
   return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(serverNow())).replaceAll("-", "");
 }

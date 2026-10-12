@@ -1,11 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { ApprovalBanner } from "@/components/approval-banner";
 import { AttackSimulator } from "@/components/attack-simulator";
 import { BlocklistCard } from "@/components/blocklist-card";
-import { IncidentList } from "@/components/incident-list";
 import { IncidentTabs } from "@/components/incident-tabs";
 import { LiveFeed } from "@/components/live-feed";
 import { Metrics } from "@/components/metrics";
@@ -82,12 +82,15 @@ export default function DashboardPage() {
         </div>
         <div className="min-w-0 space-y-5">
           <AttackSimulator />
-          <SelfGuard compact />
+          <SelfGuard compact moreHref="/app/history?tab=self" />
           <Metrics latest={incidents[0] ?? null} incidents={incidents} blocklist={blocklist} usage={usage} aiMode={tenant?.aiMode} />
           <BlocklistCard entries={blocklist} />
         </div>
       </div>
-      <IncidentList incidents={incidents} />
+      {/* Past incidents, actions and sign-ins live on the history page, not here. */}
+      <p className="text-center text-sm">
+        <Link href="/app/history" className="font-semibold text-brand hover:underline">これまでの攻撃・操作・ログインの履歴を見る →</Link>
+      </p>
     </div>
   );
 }

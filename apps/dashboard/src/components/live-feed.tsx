@@ -112,7 +112,7 @@ export function LiveFeed({ incident, steps, live, title, showLink = true }: {
         right={incident && showLink && <Link href={`/app/incidents/${incident.id}`} className="text-xs font-semibold text-brand hover:underline">詳細 →</Link>}
       />
       {!incident ? (
-        <Empty>まだ攻撃はありません。右の「攻撃シミュレーター」で試してみましょう。</Empty>
+        <Empty>まだ攻撃はありません。「攻撃シミュレーター」で試してみましょう。</Empty>
       ) : (
         <div className="mt-3 flex-1 space-y-3 px-5 pb-5">
           <AnimatePresence initial={false}>

@@ -242,3 +242,35 @@ def test_deeply_nested_and_far_json_values_are_inspected(env):
                                          "headers": {"content-type": "application/json"}, "body": json.dumps(body)},
                         headers=key_auth())
         assert r.json()["decision"] == "block", body
+
+
+# ---------------------------------------------------------------------------- a flood from a blocked IP
+
+class _Ref:
+    """Stands in for any Firestore reference; every write fails (e.g. contention under a flood)."""
+    writes = 0
+
+    def collection(self, _):
+        return self
+
+    def document(self, _):
+        return self
+
+    async def update(self, _):
+        _Ref.writes += 1
+        raise RuntimeError("too much contention on this document")
+
+
+def test_counting_hits_of_a_blocked_ip_never_fails_and_is_throttled():
+    import asyncio
+    from app.store import Store
+
+    store = Store(_Ref())
+    _Ref.writes = 0
+
+    async def flood():
+        for _ in range(500):
+            await store.count_blocked_hit("t", "198.51.100.9")  # must not raise
+
+    asyncio.run(flood())
+    assert _Ref.writes == 1  # one write per 10 s, not one per request

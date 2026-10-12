@@ -141,7 +141,7 @@ def build_defender_tools(inc: Incident) -> list:
 
         Args:
           minutes: How long to block. Guide: medium=30, high=60-240, critical=720-1440.
-          reason_ja: Short Japanese reason shown to the shop owner (max 120 characters).
+          reason_ja: Short Japanese reason shown to the site owner (max 120 characters).
         """
         if refused := _budget_exceeded(inc):
             return refused
@@ -151,7 +151,7 @@ def build_defender_tools(inc: Incident) -> list:
         """Put this incident's attacker IP under 24-hour watch without blocking it.
 
         Args:
-          reason_ja: Short Japanese reason shown to the shop owner (max 120 characters).
+          reason_ja: Short Japanese reason shown to the site owner (max 120 characters).
         """
         if refused := _budget_exceeded(inc):
             return refused
@@ -164,7 +164,7 @@ def build_defender_tools(inc: Incident) -> list:
 
         Args:
           minutes: Requested maintenance length (10-120).
-          reason_ja: Short Japanese reason shown to the shop owner (max 160 characters).
+          reason_ja: Short Japanese reason shown to the site owner (max 160 characters).
         """
         if refused := _budget_exceeded(inc):
             return refused
