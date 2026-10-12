@@ -288,16 +288,34 @@ class Pipeline:
         """Returns (report_markdown, failure_reason)."""
         s, store, t = self.settings, self.store, inc.tenant_id
         wants_byok = tenant.get("aiMode") == "byok"
-        limit = s.byok_daily_limit_per_tenant if wants_byok else s.demo_daily_limit_per_tenant
         # Operator-set override (e.g. the shared judge account). Clients cannot write tenant docs.
         override = (tenant.get("quotaOverride") or {}).get("byok" if wants_byok else "demo")
-        if isinstance(override, int) and 0 < override <= 500:
-            limit = override
-        allowed, used, _ = await store.consume_quota(t, "byok" if wants_byok else "demo", limit,
-                                                     None if wants_byok else s.demo_daily_limit_global)
-        if not allowed:
-            await inc.step("system", "warning", f"本日のAI解析の上限（{limit}回）に達しました。ルールに基づいて対処します。")
+        has_override = isinstance(override, int) and 0 < override <= 10000
+
+        if wants_byok:
+            # The owner sets the cap on their own key: an integer, or None for no limit.
+            raw = tenant.get("byokDailyLimit", s.byok_daily_limit_per_tenant) if "byokDailyLimit" in tenant \
+                else s.byok_daily_limit_per_tenant
+            daily_limit = override if has_override else (raw if (raw is None or (isinstance(raw, int) and raw > 0))
+                                                         else s.byok_daily_limit_per_tenant)
+            total_limit, global_limit = None, None
+        else:
+            # Demo: at most N per day and M ever per account; operator demo accounts are exempt.
+            daily_limit = override if has_override else s.demo_daily_limit_per_tenant
+            total_limit = None if has_override else s.demo_total_limit_per_tenant
+            global_limit = s.demo_daily_limit_global
+
+        q = await store.consume_quota(t, "byok" if wants_byok else "demo",
+                                      daily_limit=daily_limit, total_limit=total_limit, global_limit=global_limit)
+        if not q["allowed"]:
+            msg = {
+                "daily": f"本日のAI解析の上限（{q['daily_limit']}回）に達しました。",
+                "total": f"デモモードは1アカウント累計{q['total_limit']}回までです。ご自分の Gemini APIキーを登録すると、続けて使えます。",
+                "global": "本日のデモ全体の上限に達しました。しばらくしてからお試しください。",
+            }.get(q["reason"], "AI解析の上限に達しました。")
+            await inc.step("system", "warning", msg + "今回はルールに基づいて対処します。")
             return None, "quota_exceeded"
+        used, limit = q["daily_used"], daily_limit
 
         try:
             access = await model_access(s, t, tenant, await store.get_secret(t) if wants_byok else None)
@@ -306,16 +324,27 @@ class Pipeline:
             return None, "key_unavailable"
         inc.mode = access.mode
         mode_ja = "あなたのAPIキー" if access.mode == "byok" else "デモモード"
-        await inc.step("system", "status", f"AIチーム出動！（{mode_ja}・本日 {used}/{limit} 回目）")
+        count_ja = f"本日 {used}/{limit} 回目" if limit is not None else f"本日 {used} 回目（制限なし）"
+        await inc.step("system", "status", f"AIチーム出動！（{mode_ja}・{count_ja}）")
 
         report_parts: list[str] = []
         runner = Runner(app_name="agentguard", agent=build_team(inc, access.client, self.gatekeeper),
                         session_service=InMemorySessionService(), auto_create_session=True)
         message = types.Content(role="user", parts=[types.Part(text=f"incident {inc.incident_id}")])
         failure: str | None = None
+        events = 0
         try:
             async with asyncio.timeout(s.run_timeout_sec):
                 async for ev in runner.run_async(user_id=t, session_id=inc.incident_id, new_message=message):
+                    events += 1
+                    if events > s.max_run_events:
+                        # A healthy run is far under this; reaching it means the team is looping.
+                        # Stop now (the attacker is already blocked at the WAF, and the defender's
+                        # tool budget caps real actions) rather than burn tokens until the timeout.
+                        log("ERROR", "AI run exceeded the event cap; stopping to avoid a loop",
+                            incidentId=inc.incident_id, events=events, cap=s.max_run_events)
+                        failure = "loop_guard"
+                        break
                     await self._record_event(inc, ev, report_parts)
         except TimeoutError:
             failure = "timeout"
@@ -345,7 +374,8 @@ class Pipeline:
                 return report, None
             return None, "report_unavailable"
 
-        why = {"timeout": "AIの応答が時間内に返ってこなかった", "model_busy": "AIが混み合っていて応答できなかった"}.get(
+        why = {"timeout": "AIの応答が時間内に返ってこなかった", "model_busy": "AIが混み合っていて応答できなかった",
+               "loop_guard": "AIの処理が同じ手順を繰り返したため、安全のため途中で停止した"}.get(
             failure, "AIの処理中にエラーが起きた")
         await inc.step("system", "error", f"{why}ため、ルールに基づいて対処します。")
         return None, failure
@@ -413,6 +443,7 @@ class Pipeline:
             "key_rejected": "APIキーが無効だったため",
             "timeout": "AIの応答が遅れたため",
             "model_busy": "AIが混み合っていたため",
+            "loop_guard": "AIの処理が同じ手順を繰り返し、安全のため停止したため",
         }.get(failure, "AIの処理でエラーが起きたため")
         if not inc.actions:
             await do_block(inc, self.settings.fallback_block_minutes,

@@ -9,6 +9,8 @@ export type Tenant = {
   aiMode: "demo" | "byok";
   keyStatus: "none" | "valid" | "invalid";
   keyHint: string | null;
+  /** The owner-set daily cap for their own Gemini key: a number, or null for "no limit". */
+  byokDailyLimit?: number | null;
   status?: TenantStatus;
   statusAt?: Timestamp;
   /** AI investigations running now: incidentId -> start time (written only by the agent). */
@@ -186,4 +188,4 @@ export type AuditEntry = {
   at?: Timestamp;
 };
 
-export type Usage = { aiRuns: number; limit: number; mode: string };
+export type Usage = { aiRuns: number; limit: number | null; mode: string; demoRuns?: number };

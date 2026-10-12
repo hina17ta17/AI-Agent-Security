@@ -83,7 +83,7 @@ export default function DashboardPage() {
         <div className="min-w-0 space-y-5">
           <AttackSimulator />
           <SelfGuard compact moreHref="/app/history?tab=self" />
-          <Metrics latest={incidents[0] ?? null} incidents={incidents} blocklist={blocklist} usage={usage} aiMode={tenant?.aiMode} />
+          <Metrics latest={incidents[0] ?? null} incidents={incidents} blocklist={blocklist} usage={usage} aiMode={tenant?.aiMode} byokLimit={tenant?.byokDailyLimit} />
           <BlocklistCard entries={blocklist} />
         </div>
       </div>

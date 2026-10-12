@@ -61,6 +61,9 @@ class Incident:
     usage: Usage = field(default_factory=Usage)
     tool_calls: int = 0
     seq: int = 0
+    # Results of tool calls already made this incident, keyed by (tool, args). A repeat of the same
+    # call returns the stored result instead of acting again, so the AI cannot loop on one action.
+    tool_results: dict = field(default_factory=dict)
 
     @property
     def tenant_id(self) -> str:

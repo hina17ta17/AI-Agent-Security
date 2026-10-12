@@ -254,27 +254,60 @@ class Store:
         await asyncio.gather(*(extend(d["ip"]) for d in shorter))
         return [d["ip"] for d in shorter]
 
-    async def consume_quota(self, t: str, mode: str, per_tenant: int, global_limit: int | None) -> tuple[bool, int, int]:
-        """Atomically count one AI run. Returns (allowed, used_after, limit)."""
+    @staticmethod
+    def quota_reason(daily_used: int, total_used: int, global_used: int,
+                     daily_limit: int | None, total_limit: int | None, global_limit: int | None) -> str | None:
+        """Which cap (if any) this run would exceed: 'daily', 'total', 'global', or None to allow."""
+        if daily_limit is not None and daily_used >= daily_limit:
+            return "daily"
+        if total_limit is not None and total_used >= total_limit:
+            return "total"
+        if global_limit is not None and global_used >= global_limit:
+            return "global"
+        return None
+
+    async def consume_quota(self, t: str, mode: str, *, daily_limit: int | None,
+                            total_limit: int | None, global_limit: int | None) -> dict:
+        """Atomically count one AI run against up to three caps, and allow or refuse it.
+
+        Any limit may be None (no cap): BYOK runs unlimited when the owner chooses, while demo runs
+        have a per-day cap, a lifetime cap per account, and a project-wide daily cap. The lifetime
+        total lives in usage/total so the owner can see it; today's count lives in usage/<yyyymmdd>.
+        Returns {allowed, reason, daily_used, total_used, daily_limit, total_limit}.
+        """
         day = today_key()
         tref = self.tenant(t).collection("usage").document(day)
+        totref = self.tenant(t).collection("usage").document("total")
         gref = self.db.collection("usage").document(day) if global_limit is not None else None
 
         @firestore.async_transactional
         async def txn(transaction):
             tsnap = await tref.get(transaction=transaction)
-            used = (tsnap.to_dict() or {}).get("aiRuns", 0) if tsnap.exists else 0
+            daily_used = (tsnap.to_dict() or {}).get("aiRuns", 0) if tsnap.exists else 0
+            total_used = 0
+            if total_limit is not None:
+                totsnap = await totref.get(transaction=transaction)
+                total_used = (totsnap.to_dict() or {}).get("demoRuns", 0) if totsnap.exists else 0
             gused = 0
             if gref is not None:
                 gsnap = await gref.get(transaction=transaction)
                 gused = (gsnap.to_dict() or {}).get("demoRuns", 0) if gsnap.exists else 0
-            if used >= per_tenant or (gref is not None and gused >= global_limit):
-                return False, used, per_tenant
-            transaction.set(tref, {"aiRuns": used + 1, "mode": mode, "limit": per_tenant,
+
+            reason = self.quota_reason(daily_used, total_used, gused, daily_limit, total_limit,
+                                       global_limit if gref is not None else None)
+            if reason:
+                return {"allowed": False, "reason": reason, "daily_used": daily_used,
+                        "total_used": total_used, "daily_limit": daily_limit, "total_limit": total_limit}
+
+            transaction.set(tref, {"aiRuns": daily_used + 1, "mode": mode, "limit": daily_limit,
                                    "updatedAt": firestore.SERVER_TIMESTAMP}, merge=True)
+            if total_limit is not None:
+                transaction.set(totref, {"demoRuns": total_used + 1, "limit": total_limit,
+                                         "updatedAt": firestore.SERVER_TIMESTAMP}, merge=True)
             if gref is not None:
                 transaction.set(gref, {"demoRuns": gused + 1}, merge=True)
-            return True, used + 1, per_tenant
+            return {"allowed": True, "reason": None, "daily_used": daily_used + 1,
+                    "total_used": total_used + 1, "daily_limit": daily_limit, "total_limit": total_limit}
 
         return await self._transact(txn)
 

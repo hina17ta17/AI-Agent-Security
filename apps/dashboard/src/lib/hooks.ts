@@ -125,6 +125,13 @@ export function useUsageToday(): Usage | null {
   return useLiveDoc<Usage>(`usage/${uid}/${day}`, () => doc(db, "tenants", uid, "usage", day)).data;
 }
 
+/** Demo runs used by this account in total (the lifetime cap), with its limit. */
+export function useDemoTotal(): { demoRuns: number; limit: number } | null {
+  const { db, uid } = useSession();
+  return useLiveDoc<{ demoRuns: number; limit: number }>(
+    `usage/${uid}/total`, () => doc(db, "tenants", uid, "usage", "total")).data;
+}
+
 /** Server-aligned "now", re-rendered every `ms` so countdowns and "n秒前" stay fresh. */
 export function useNow(ms = 1000): number {
   const [now, setNow] = useState(() => serverNow());

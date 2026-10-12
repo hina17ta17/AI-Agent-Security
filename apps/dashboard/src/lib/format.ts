@@ -103,6 +103,7 @@ export const AUDIT_ACTION: Record<string, string> = {
   register_api_key: "APIキーを登録",
   delete_api_key: "APIキーを削除",
   switch_ai_mode: "AIの実行モードを変更",
+  set_byok_limit: "自分のキーの1日の上限を変更",
   confirm_sign_in: "ログインを本人と確認",
   sign_out_everywhere: "すべての端末からログアウト",
 };

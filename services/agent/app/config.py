@@ -33,13 +33,15 @@ class Settings:
     armor_location: str
     armor_input_template: str
     armor_output_template: str
-    demo_daily_limit_per_tenant: int
+    demo_daily_limit_per_tenant: int  # demo runs per account per day
+    demo_total_limit_per_tenant: int  # demo runs per account ever (lifetime cap)
     demo_daily_limit_global: int
-    byok_daily_limit_per_tenant: int
+    byok_daily_limit_per_tenant: int  # default cap for a new BYOK account (the owner can change it)
     dedupe_window_sec: int
     max_block_minutes: int
     fallback_block_minutes: int
     run_timeout_sec: int
+    max_run_events: int  # hard cap on AI events per incident, so a runaway loop stops early
     max_concurrent_ai: int  # full AI investigations per tenant at the same time
     active_stale_sec: int
     wave_idle_sec: int
@@ -75,13 +77,15 @@ def get_settings() -> Settings:
         armor_location=armor_location,
         armor_input_template=os.environ.get("ARMOR_INPUT_TEMPLATE", f"{armor_base}/agentguard-input"),
         armor_output_template=os.environ.get("ARMOR_OUTPUT_TEMPLATE", f"{armor_base}/agentguard-output"),
-        demo_daily_limit_per_tenant=_int("DEMO_DAILY_LIMIT_PER_TENANT", 10),
+        demo_daily_limit_per_tenant=_int("DEMO_DAILY_LIMIT_PER_TENANT", 3),
+        demo_total_limit_per_tenant=_int("DEMO_TOTAL_LIMIT_PER_TENANT", 10),
         demo_daily_limit_global=_int("DEMO_DAILY_LIMIT_GLOBAL", 100),
         byok_daily_limit_per_tenant=_int("BYOK_DAILY_LIMIT_PER_TENANT", 200),
         dedupe_window_sec=_int("DEDUPE_WINDOW_SEC", 300),
         max_block_minutes=_int("MAX_BLOCK_MINUTES", 1440),
         fallback_block_minutes=_int("FALLBACK_BLOCK_MINUTES", 30),
         run_timeout_sec=_int("RUN_TIMEOUT_SEC", 90),
+        max_run_events=_int("MAX_RUN_EVENTS", 50),
         max_concurrent_ai=_int("MAX_CONCURRENT_AI_PER_TENANT", 3),
         active_stale_sec=_int("ACTIVE_STALE_SEC", 300),
         wave_idle_sec=_int("WAVE_IDLE_SEC", 60),

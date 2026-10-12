@@ -70,6 +70,16 @@ def _budget_exceeded(inc: Incident) -> dict | None:
     return None
 
 
+def _repeat(inc: Incident, tool: str, args: dict):
+    """If this exact call was already made in this incident, the stored result (no re-run)."""
+    return inc.tool_results.get((tool, repr(sorted(args.items()))))
+
+
+def _remember(inc: Incident, tool: str, args: dict, result: dict) -> dict:
+    inc.tool_results[(tool, repr(sorted(args.items())))] = result
+    return result
+
+
 async def do_block(inc: Incident, minutes: int, reason_ja: str, actor: str) -> dict:
     ip = inc.event.src_ip
     reason = clean_text(reason_ja, 120) or "攻撃を検知したため"
@@ -143,9 +153,11 @@ def build_defender_tools(inc: Incident) -> list:
           minutes: How long to block. Guide: medium=30, high=60-240, critical=720-1440.
           reason_ja: Short Japanese reason shown to the site owner (max 120 characters).
         """
+        if prior := _repeat(inc, "block_ip", {"minutes": minutes}):
+            return {**prior, "note": "同じブロックは既に実行済みです（重複実行はしません）"}
         if refused := _budget_exceeded(inc):
             return refused
-        return await do_block(inc, minutes, reason_ja, actor)
+        return _remember(inc, "block_ip", {"minutes": minutes}, await do_block(inc, minutes, reason_ja, actor))
 
     async def watch_ip(reason_ja: str) -> dict:
         """Put this incident's attacker IP under 24-hour watch without blocking it.
@@ -153,9 +165,11 @@ def build_defender_tools(inc: Incident) -> list:
         Args:
           reason_ja: Short Japanese reason shown to the site owner (max 120 characters).
         """
+        if prior := _repeat(inc, "watch_ip", {}):
+            return {**prior, "note": "同じ監視は既に実行済みです（重複実行はしません）"}
         if refused := _budget_exceeded(inc):
             return refused
-        return await do_watch(inc, reason_ja, actor)
+        return _remember(inc, "watch_ip", {}, await do_watch(inc, reason_ja, actor))
 
     async def request_isolation(minutes: int, reason_ja: str) -> dict:
         """Ask the human owner to put the whole site into maintenance mode. Critical incidents only.
@@ -166,8 +180,10 @@ def build_defender_tools(inc: Incident) -> list:
           minutes: Requested maintenance length (10-120).
           reason_ja: Short Japanese reason shown to the site owner (max 160 characters).
         """
+        if prior := _repeat(inc, "request_isolation", {}):
+            return {**prior, "note": "サイト停止の依頼は既に出しています（重複して依頼しません）"}
         if refused := _budget_exceeded(inc):
             return refused
-        return await do_request_isolation(inc, minutes, reason_ja, actor)
+        return _remember(inc, "request_isolation", {}, await do_request_isolation(inc, minutes, reason_ja, actor))
 
     return [block_ip, watch_ip, request_isolation]

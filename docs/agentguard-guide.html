@@ -307,7 +307,7 @@
         <p>実際に守りを固める防御担当。道具を持つメンバーなので、<b>攻撃文は一切見せず</b>、コードが作った検証済みの要約だけを渡します。</p>
         <dl>
           <dt>道具</dt><dd><code>block_ip</code>（攻撃元IPのブロック）、<code>watch_ip</code>（24時間の監視）、<code>request_isolation</code>（サイトの一時停止を人に依頼）</dd>
-          <dt>道具の決まり</dt><dd>対象は攻撃元のIPに固定（AI が選べない）。ブロック時間は5分〜24時間、AI を狙った攻撃は最低4時間。許可リストと内部ネットワークのIPは絶対にブロックしない。一時停止は重大度が「重大」のときだけ依頼でき、実行には人の承認が必要。道具は1件あたり4回まで。<b>「解除」の道具はそもそも存在しない</b>（解除できるのは人だけ）</dd>
+          <dt>道具の決まり</dt><dd>対象は攻撃元のIPに固定（AI が選べない）。ブロック時間は5分〜24時間、AI を狙った攻撃は最低4時間。許可リストと内部ネットワークのIPは絶対にブロックしない。一時停止は重大度が「重大」のときだけ依頼でき、実行には人の承認が必要。道具は1件あたり4回まで。<b>同じ操作を繰り返し呼んでも重複実行はせず、前回の結果を返す</b>ので、同じ処理を何度も行いません。<b>「解除」の道具はそもそも存在しない</b>（解除できるのは人だけ）</dd>
           <dt>ファイル</dt><dd><code>services/agent/app/tools.py</code>（道具と決まり）、<code>team.py</code></dd>
         </dl>
       </article>
@@ -334,6 +334,7 @@
         <div class="box"><h4>APIキー（BYOK）</h4><p class="muted">自分の Gemini APIキーは Cloud KMS で暗号化して保存。ダッシュボードは暗号化だけ、AI サービスは復号だけができ、開発者も中身を見られません。</p></div>
         <div class="box"><h4>ログインの保護</h4><p class="muted">ログイン履歴（IPは最後の部分を伏せて保存）、いつもと違う端末の警告、すべての端末からのログアウト（API とデータベースのルールの両方で古いログインを拒否）。</p></div>
         <div class="box"><h4>AgentGuard 自身の保護</h4><p class="muted">ダッシュボードへのアクセス（ログイン画面を含む）も Proxy でミハリが検査。鍵を置かずにサービスアカウントで認証し、応答がないときは止めずに通します。最後の検査・検査した件数・止めた攻撃は、トップ画面とダッシュボードの「このサイト自身も守っています」に、だれでも見える形で出ます（件数だけで、中身は出しません）。</p></div>
+        <div class="box"><h4>AIがループしない仕組み</h4><p class="muted">処理の流れは一方向（戻る辺のない DAG）なので、構造的に無限ループしません。さらに1件あたり <b>全体90秒</b>の制限、道具は <b>4回まで</b>、同じ操作は重複実行しない、AIのイベントが <b>50件</b>を超えたら強制停止、の4重の歯止めがあります。どれかに当たった場合も、攻撃元はミハリが入口で遮断済みで、ルールに基づく一時ブロックで必ず守ります。</p></div>
         <div class="box"><h4>接続元IPの扱い</h4><p class="muted">Cloud Run では <code>X-Forwarded-For</code> の<b>最後</b>が本当の接続元。前の部分は接続元が自由に書けるので使いません。</p></div>
       </div>
     </section>
@@ -383,12 +384,12 @@
         <tr><td class="path"><code>app/prompts.py</code></td><td>各メンバーへの指示と、渡す要約（シラベ用・マモル用・ツタエ用）の組み立て</td></tr>
         <tr><td class="path"><code>app/guard.py</code></td><td>番人：Model Armor による入力と出力の検査、攻撃文の囲い込み</td></tr>
         <tr><td class="path"><code>app/tools.py</code></td><td>マモルの道具（ブロック・監視・一時停止の依頼）と、その決まり</td></tr>
-        <tr><td class="path"><code>app/llm.py</code></td><td>Gemini の使い分け（デモモード／あなたのAPIキー）と、KMS による APIキーの復号</td></tr>
+        <tr><td class="path"><code>app/llm.py</code></td><td>Gemini の使い分け（デモモード／あなたのAPIキー）と、KMS による APIキーの復号。BYOK は Gemini のキーのみ対応</td></tr>
         <tr><td class="path"><code>app/store.py</code></td><td>Firestore への書き込み（インシデント・実況・ブロック・承認・監査・回数）とトランザクション</td></tr>
         <tr><td class="path"><code>app/concurrency.py</code></td><td>同時に多数の攻撃が来たときの決まり（AI の枠、状態、攻撃の波のブロック時間）</td></tr>
         <tr><td class="path"><code>app/context.py</code> / <code>models.py</code></td><td>1件の攻撃の作業メモ（使ったトークンと費用など）、イベントと判定のデータ形式</td></tr>
         <tr><td class="path"><code>app/config.py</code> / <code>telemetry.py</code> / <code>logs.py</code></td><td>設定、Cloud Trace への処理の記録、構造化ログ</td></tr>
-        <tr><td class="path"><code>tests/</code></td><td>道具の決まり、分岐、信頼の境界、費用計算、同時処理、障害からの回復のテスト（44件）</td></tr>
+        <tr><td class="path"><code>tests/</code></td><td>道具の決まり、ループ対策、回数制限、分岐、信頼の境界、費用計算、同時処理、障害からの回復のテスト（49件）</td></tr>
       </table></div>
 
       <h3>apps/dashboard（ダッシュボード）</h3>
@@ -454,7 +455,7 @@ bash infra/deploy.sh dashboard
 
 # テスト
 cd services/target &amp;&amp; uv run pytest      # 111件
-cd services/agent  &amp;&amp; uv run pytest      # 44件</pre>
+cd services/agent  &amp;&amp; uv run pytest      # 49件</pre>
       <div class="table-wrap"><table>
         <tr><th>Google Cloud のサービス</th><th>使い道</th></tr>
         <tr><td>Cloud Run</td><td>3つのサービスの実行（dashboard・target は公開、agent は非公開）</td></tr>

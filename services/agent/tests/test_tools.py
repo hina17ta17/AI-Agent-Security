@@ -70,10 +70,22 @@ def test_isolation_only_for_critical(incident):
 
 
 def test_tool_call_budget(incident):
-    block_ip, watch_ip, _ = tools.build_defender_tools(incident)
-    outcomes = [run(watch_ip("監視")) for _ in range(tools.MAX_TOOL_CALLS + 1)]
+    # Distinct calls consume the budget; the one past MAX_TOOL_CALLS is refused.
+    block_ip, _, _ = tools.build_defender_tools(incident)
+    outcomes = [run(block_ip(10 * (i + 1), "テスト")) for i in range(tools.MAX_TOOL_CALLS + 1)]
     assert outcomes[-1]["status"] == "refused"
-    assert all(o["status"] == "watching" for o in outcomes[:-1])
+    assert all(o["status"] == "blocked" for o in outcomes[:-1])
+
+
+def test_repeating_the_same_call_does_not_loop_or_act_twice(incident):
+    # The AI calling the exact same action again gets the earlier result, not a second action.
+    block_ip, watch_ip, _ = tools.build_defender_tools(incident)
+    first = run(watch_ip("監視"))
+    repeats = [run(watch_ip("監視")) for _ in range(10)]
+    assert first["status"] == "watching"
+    assert all(r["status"] == "watching" and "note" in r for r in repeats)
+    assert len(incident.store.watch) == 1  # the action ran once, not eleven times
+    assert incident.tool_calls == 1  # repeats are deduped, so the budget is not consumed
 
 
 def test_there_is_no_tool_to_loosen_defenses(incident):

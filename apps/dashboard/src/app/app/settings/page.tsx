@@ -109,8 +109,8 @@ function ModeCard() {
   const tenant = useTenant().data;
   const act = useAction();
   const options = [
-    { mode: "demo" as const, title: "デモモード", desc: "AgentGuard の Gemini を使います（1日の回数に上限あり）。審査やお試し向け。" },
-    { mode: "byok" as const, title: "あなたのAPIキー", desc: "登録したキーで動きます（1日200回まで）。料金はあなたの Google アカウントに請求されます。" },
+    { mode: "demo" as const, title: "デモモード", desc: "AgentGuard の Gemini を使います（1日3回・1アカウント累計10回まで）。審査やお試し向け。" },
+    { mode: "byok" as const, title: "あなたのAPIキー", desc: "登録したキーで動きます。1日の回数は自分で決められます（下で設定・制限なしも可）。料金はあなたの Google アカウントに請求されます。" },
   ];
   return (
     <Card>
@@ -135,6 +135,54 @@ function ModeCard() {
         })}
       </div>
       <div className="px-5 pb-5"><Note m={act.message} /></div>
+    </Card>
+  );
+}
+
+function ByokLimitCard() {
+  const stored = useTenant().data?.byokDailyLimit; // undefined = default, null = no limit, number = cap
+  // Re-mount the editor once the stored value loads, so it starts from what is saved.
+  const key = stored === undefined ? "default" : stored === null ? "unlimited" : String(stored);
+  return <ByokLimitEditor key={key} initUnlimited={stored === null}
+                          initCount={typeof stored === "number" ? String(stored) : "200"} />;
+}
+
+function ByokLimitEditor({ initUnlimited, initCount }: { initUnlimited: boolean; initCount: string }) {
+  const { api } = useSession();
+  const act = useAction();
+  const [unlimited, setUnlimited] = useState(initUnlimited);
+  const [count, setCount] = useState(initCount);
+  const n = Number(count);
+  const valid = unlimited || (Number.isInteger(n) && n >= 1 && n <= 10000);
+  return (
+    <Card>
+      <CardHeader title="自分のキーの1日の上限" icon={<Cpu size={16} className="text-brand" />}
+                  sub="あなたの Gemini キーを使うとき、1日に AI を動かす回数の上限です（料金はあなたに請求されます）" />
+      <div className="p-5">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={unlimited} onChange={(e) => setUnlimited(e.target.checked)} className="size-4" />
+          制限なし（回数を制限しない）
+        </label>
+        {!unlimited && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted">1日あたり</span>
+            <input type="number" min={1} max={10000} value={count} onChange={(e) => setCount(e.target.value)}
+                   className="h-10 w-28 rounded-xl border border-line bg-white px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
+            <span className="text-sm text-muted">回まで</span>
+          </div>
+        )}
+        <Button className="mt-4" disabled={act.busy || !valid}
+                onClick={() => act.run(() => api("/api/limits", { body: { limit: unlimited ? null : n } }),
+                  unlimited ? "回数の上限を「制限なし」にしました。" : `1日の上限を ${n} 回にしました。`)}>
+          保存する
+        </Button>
+        {!valid && <p className="mt-2 text-xs text-rose-600">1〜10000 の数字を入れるか、「制限なし」を選んでください。</p>}
+        <Note m={act.message} />
+        <p className="mt-3 text-xs text-muted">
+          AgentGuard は Gemini を使うため、<b className="text-ink">自分のキーは Gemini（Google AI Studio）のAPIキー</b>が必要です。
+          OpenAI など他社のキーでは動きません。
+        </p>
+      </div>
     </Card>
   );
 }
@@ -261,6 +309,7 @@ export default function SettingsPage() {
       <LoginSecurityCard />
       <ApiKeyCard />
       <ModeCard />
+      <ByokLimitCard />
       <AllowlistCard />
     </div>
   );
