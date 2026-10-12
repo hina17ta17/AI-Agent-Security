@@ -26,6 +26,10 @@ class Rule:
     attack_type: str  # sqli | xss | path_traversal | cmd_injection
     label_ja: str
     pattern: re.Pattern[str]
+    # "strong": clear attack grammar, blocks on its own. "weak": looks suspicious but also appears in
+    # ordinary text (a lone SQL word, document.cookie in a dev note), so it blocks only together with
+    # another signal. This keeps Mihari from mistaking normal messages and code snippets for attacks.
+    strength: str = "strong"
 
 
 @dataclass(frozen=True)
@@ -42,34 +46,51 @@ def _r(pattern: str) -> re.Pattern[str]:
     return re.compile(pattern, re.IGNORECASE)
 
 
+# OS commands an injection runs. Kept to real binaries, so ordinary words ("git", "npm") don't match.
+_CMDS = (r"cat|ls|dir|id|whoami|uname|hostname|wget|curl|nc|ncat|bash|sh|zsh|ksh|powershell|pwsh|cmd"
+         r"|rm|mv|cp|chmod|chown|kill|ping|nslookup|dig|python3?|perl|ruby|php|nmap|telnet|ftp|scp|ssh")
+# What follows a real injected command: a flag/path/home (" -rf", " /etc", " ~"), an argument that
+# contains a slash or colon (a path or URL), a pipe/redirect/terminator, or the end of the value.
+# Plain prose after the word ("; cat and fish", "; id 4521") matches none of these.
+_CMD_ARG = r"(?:\s+[-/~]|\s+\S*[:/]|\s*(?:$|[|;&><`]))"
+
 RULES: tuple[Rule, ...] = (
     # --- SQL injection
     Rule("sqli-tautology", "sqli", "SQLインジェクション（常に真になる条件）",
-         _r(r"['\"`]\s*(or|and|\|\||&&)\s*['\"`]?\s*\w+\s*['\"`]?\s*(=|like)\s*['\"`]?\s*\w")),
+         _r(r"['\"`]\s*(or|and|\|\||&&)\s+['\"`]?\w+['\"`]?\s*(=|<>|!=|\blike\b)\s*['\"`]?\w")),
     Rule("sqli-tautology-bare", "sqli", "SQLインジェクション（常に真になる条件）",
-         _r(r"\b(or|and)\s+(\d+)\s*=\s*\2\b")),
+         _r(r"['\"`]?\s*\b(or|and)\s+(\d+)\s*=\s*\2\b")),
     Rule("sqli-union", "sqli", "SQLインジェクション（UNION SELECT）",
          _r(r"\bunion\b(\s+all)?\s+select\b")),
     Rule("sqli-stacked", "sqli", "SQLインジェクション（複文の実行）",
-         _r(r";\s*(drop|delete|insert|update|alter|truncate|create)\s+\w+")),
+         _r(r";\s*(drop\s+(table|database)|truncate\s+table|delete\s+from|insert\s+into"
+            r"|update\s+\w+\s+set\b|create\s+(table|database)|alter\s+table)\b")),
     Rule("sqli-comment", "sqli", "SQLインジェクション（コメントによる条件の無効化）",
-         _r(r"['\"`]\s*\)?\s*(--|#)")),
+         _r(r"['\"`]\s*\)?\s*(--|#)(\s|$)")),
     Rule("sqli-time", "sqli", "SQLインジェクション（時間差攻撃）",
-         _r(r"\b(sleep|pg_sleep|benchmark)\s*\(|\bwaitfor\s+delay\b")),
+         _r(r"['\"`)]\s*(or|and)?\s*(sleep|pg_sleep|benchmark)\s*\("
+            r"|\b(or|and)\s+(sleep|pg_sleep|benchmark)\("  # "AND SLEEP(5)": no space, unlike English "or sleep (8h)"
+            r"|\bwaitfor\s+delay\b")),
+    Rule("sqli-time-bare", "sqli", "SQLインジェクション（時間差攻撃の疑い）",
+         _r(r"\b(sleep|pg_sleep|benchmark)\s*\(\s*\d"), strength="weak"),
     Rule("sqli-schema", "sqli", "SQLインジェクション（データベース構造の探索）",
          _r(r"\binformation_schema\b|\bsqlite_master\b|\bpg_catalog\b")),
     # --- Cross-site scripting
-    Rule("xss-script", "xss", "XSS（scriptタグの埋め込み）", _r(r"<\s*script\b")),
-    # [^<>] rather than [^>]: each scan stops at the next "<", so a flood of "<" stays linear.
-    Rule("xss-handler", "xss", "XSS（イベントハンドラの埋め込み）", _r(r"<[^<>]*\bon[a-z]+\s*=")),
-    Rule("xss-js-uri", "xss", "XSS（javascript: スキーム）", _r(r"javascript\s*:")),
-    Rule("xss-embed", "xss", "XSS（iframe / svg などの埋め込み）", _r(r"<\s*(iframe|svg|object|embed)\b")),
-    Rule("xss-cookie", "xss", "XSS（Cookie の窃取）", _r(r"document\s*\.\s*cookie")),
+    Rule("xss-script", "xss", "XSS（scriptタグの埋め込み）", _r(r"<\s*/?\s*script\b")),
+    # <[a-z] anchors to a real tag start; [^<>] keeps each scan linear on a flood of "<".
+    Rule("xss-handler", "xss", "XSS（イベントハンドラの埋め込み）",
+         _r(r"<[a-z][^<>]*[\s/](on(error|load|click|mouse\w+|focus|blur|submit|change|input|key\w+"
+            r"|toggle|animation\w+|pointer\w+|wheel|abort|begin|drag\w*|drop|paste|scroll))\s*=")),
+    Rule("xss-js-uri", "xss", "XSS（javascript: スキーム）", _r(r"javascript\s*:\s*[\w.]+\s*\(")),
+    Rule("xss-embed", "xss", "XSS（iframe / svg などの埋め込み）",
+         _r(r"<\s*/?\s*(iframe|svg|object|embed|img|body|video|audio|details|marquee)\b[^<>]*(on[a-z]+\s*=|src\s*=|data\s*=)")),
+    Rule("xss-cookie", "xss", "XSS（Cookie の窃取）",
+         _r(r"document\s*\.\s*cookie|\beval\s*\(|\bfetch\s*\(|\.innerhtml\b"), strength="weak"),
     # --- OS command injection (checked before path traversal: "; cat /etc/hosts" is command injection)
     Rule("cmd-chain", "cmd_injection", "OSコマンドインジェクション（コマンドの連結）",
-         _r(r"(;|\|\||&&|\|)\s*(cat|ls|id|whoami|uname|wget|curl|nc|bash|sh|powershell|rm)\b")),
+         _r(rf"(;|\|\||&&|\|)\s*({_CMDS})\b{_CMD_ARG}")),
     Rule("cmd-subst", "cmd_injection", "OSコマンドインジェクション（コマンド置換）",
-         _r(r"\$\([^)]{1,200}\)|`[^`]{1,200}`")),
+         _r(rf"\$\(\s*({_CMDS})\b|`\s*({_CMDS})\b")),
     # --- Path traversal
     Rule("pt-dotdot", "path_traversal", "パストラバーサル（上位ディレクトリへの移動）",
          _r(r"(^|[/\\=])\.\.[/\\]")),
@@ -113,22 +134,38 @@ def normalize(value: str) -> str:
     return text
 
 
+def _detection(field: str, normalized: str, rule: Rule, m: re.Match[str]) -> Detection:
+    start = max(0, m.start() - 20)
+    return Detection(
+        rule_id=rule.rule_id,
+        attack_type=rule.attack_type,
+        label_ja=rule.label_ja,
+        field=field,
+        matched=normalized[start : m.end() + 20],
+        payload=normalized[:PAYLOAD_PREVIEW_CHARS],
+    )
+
+
 def inspect_value(field: str, value: str) -> Detection | None:
+    """A value is an attack if a strong rule matches, or if two weak rules match together.
+
+    A single weak signal (one SQL-ish word, document.cookie in a note) is left to pass, because it
+    also turns up in ordinary messages and code snippets. That is where Mihari used to false-alarm.
+    """
     if not value:
         return None
     normalized = normalize(value)
+    weak: list[tuple[Rule, re.Match[str]]] = []
     for rule in RULES:
         m = rule.pattern.search(normalized)
-        if m:
-            start = max(0, m.start() - 20)
-            return Detection(
-                rule_id=rule.rule_id,
-                attack_type=rule.attack_type,
-                label_ja=rule.label_ja,
-                field=field,
-                matched=normalized[start : m.end() + 20],
-                payload=normalized[:PAYLOAD_PREVIEW_CHARS],
-            )
+        if not m:
+            continue
+        if rule.strength == "strong":
+            return _detection(field, normalized, rule, m)
+        weak.append((rule, m))
+        if len(weak) >= 2:
+            # Report the first weak signal as the reason; both are evidence the AI team will see.
+            return _detection(field, normalized, weak[0][0], weak[0][1])
     return None
 
 

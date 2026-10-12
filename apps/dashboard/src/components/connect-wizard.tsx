@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, ExternalLink, Loader2, PartyPopper, Trash2 } from "lucide-react";
+import { Check, CircleCheck, ClipboardList, Copy, ExternalLink, Loader2, PartyPopper, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/lib/auth-context";
@@ -128,6 +128,58 @@ function guessHost(host: string): Host {
   return "other";
 }
 
+/**
+ * The whole setup as one block of text: site, key line, which file, the code, and the three steps.
+ * A non-technical owner can copy this and hand it to whoever manages the site — the "anyone can do
+ * it" path. It contains the secret key, so it is offered only while the key is on screen.
+ */
+function buildHandoff(kind: ServerFramework, url: string, key: string, snippet: string): string {
+  return [
+    "【AgentGuard 連携手順】このサイトを守るための設定です（2〜3分で終わります）",
+    "",
+    `対象サイト：${url}`,
+    `種類：${KINDS.find((k) => k.id === kind)!.label}`,
+    "",
+    "― やること（3つ）―",
+    "",
+    "1) サーバーの環境変数に、次の1行を追加する：",
+    `   AGENTGUARD_KEY=${key}`,
+    "   ※ このキーは秘密です。公開リポジトリやHTMLには書かず、サーバーの環境変数にだけ入れてください。",
+    "",
+    `2) 次のコードを「${WHERE[kind].file}」に追加する：`,
+    `   （${WHERE[kind].how}）`,
+    "",
+    "----- ここからコード -----",
+    snippet,
+    "----- ここまで -----",
+    "",
+    "3) いつもどおりサイトを公開し直し、ブラウザで一度開く。",
+    "   → AgentGuard の設定画面が自動で「つながりました」に変わり、設定は完了です。",
+  ].join("\n");
+}
+
+function HandoffBundle({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="rounded-2xl border border-brand/30 bg-brand/5 p-4">
+      <p className="flex items-center gap-2 text-sm font-bold text-ink">
+        <ClipboardList size={16} className="text-brand" /> 自分で設定しない場合：手順をまとめてコピー
+      </p>
+      <p className="mt-1 text-xs text-muted">
+        サイトを作った人・管理している人に、下のボタンでコピーした手順をそのまま渡せば設定できます（キー・コード・手順が全部入っています）。
+      </p>
+      <button
+        type="button"
+        onClick={() => { navigator.clipboard?.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+        className="mt-2 inline-flex items-center gap-1.5 rounded-xl border border-brand bg-white px-3 py-2 text-sm font-semibold text-brand hover:bg-brand/5"
+      >
+        {copied ? <><Check size={15} /> コピーしました（渡す相手に貼り付け）</> : <><Copy size={15} /> 設定手順をまとめてコピー</>}
+      </button>
+      <p className="mt-2 text-[11px] text-muted">※ この手順には秘密の接続キーが含まれます。渡す相手以外には共有しないでください。</p>
+    </div>
+  );
+}
+
 function Step({ n, title, done, children }: { n: number; title: string; done?: boolean; children: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-line p-4">
@@ -199,10 +251,17 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
       </div>
       <p className="text-sm text-muted">
         あと3ステップで、このサイトを守れます。<b className="text-ink">キーとコードをサイトに入れるだけ</b>で、
-        あとは AgentGuard が自動でつながりを確かめます。
+        あとは AgentGuard が自動でつながりを確かめます。自分でできない場合は、下の「手順をまとめてコピー」を使ってください。
       </p>
 
+      {kind !== "static" && connectionKey && (
+        <HandoffBundle text={buildHandoff(kind, site.url, connectionKey, integrationSnippet(kind, ingestUrl, site.path ?? ""))} />
+      )}
+
       <Step n={1} title="サイトの種類を選ぶ" done={kind !== "static"}>
+        {kind !== "static" && (
+          <p className="mb-2 text-xs text-muted">URL から<b className="text-ink">「{KINDS.find((k) => k.id === kind)!.label}」</b>と推測しました。違う場合は選び直してください。</p>
+        )}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {KINDS.map((k) => (
             <button key={k.id} type="button" onClick={() => setKind(k.id)}
@@ -243,9 +302,17 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
             {host === "cloudrun" ? (
               <CloudRunShortcut host={site.host} connectionKey={connectionKey} />
             ) : (
-              <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
-                {HOSTS.find((h) => h.id === host)!.steps.map((s) => <li key={s}>{s}</li>)}
-              </ol>
+              <>
+                <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
+                  {HOSTS.find((h) => h.id === host)!.steps.map((s) => <li key={s}>{s}</li>)}
+                </ol>
+                {host === "other" && connectionKey && (
+                  <div className="mt-2">
+                    <p className="mb-1 text-[11px] font-semibold text-ink">.env に貼る1行（そのままコピーできます）</p>
+                    <CopyField value={`AGENTGUARD_KEY=${connectionKey}`} label=".env の1行" />
+                  </div>
+                )}
+              </>
             )}
           </Step>
 

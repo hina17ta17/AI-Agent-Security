@@ -214,7 +214,7 @@ bash infra/setup-cloud.sh push https://agent-<PROJECT_NUMBER>.asia-northeast1.ru
 bash infra/deploy.sh dashboard
 ```
 
-テスト：`services/target`（64件：WAF のルールと誤検知、取り込み口の流れと認証）、`services/agent`（44件：道具の安全ルール、分岐、信頼の境界、料金計算、同時処理、障害からの回復）。仕組みの全体は [docs/agentguard-guide.html](docs/agentguard-guide.html) で説明しています
+テスト：`services/target`（111件：WAF の検知と誤検知、取り込み口の流れと認証）、`services/agent`（44件：道具の安全ルール、分岐、信頼の境界、料金計算、同時処理、障害からの回復）。仕組みの全体は [docs/agentguard-guide.html](docs/agentguard-guide.html) で説明しています
 
 ```bash
 cd services/target && uv run pytest
@@ -226,7 +226,7 @@ cd services/agent && uv run pytest
 - 動作確認は攻撃シミュレーターの見本イベントで行います。攻撃元IPは文書用のアドレス範囲（RFC 5737）を擬似的に付けています
 - 本物の攻撃での確認は `bash infra/attack-test.sh https://<自分の Cloud Run サイト>` で行えます。よく知られた簡単なテスト用の攻撃（SQLインジェクション・XSS・パストラバーサル・AIをだます文入り）を Cloud Build のマシンから送り、ミハリの遮断と AI チームによる IP ブロックを確かめます。送り先はこのプロジェクトの Cloud Run サービスに限っているので、他人のサイトには送れません
 - サイトの保護は、サイトに組み込んだミドルウェアが取り込み口へ各リクエストを送り、返ってきた判断を適用する方式です。ブロックはアプリ層で行います。Cloudflare や Cloud Armor との連携は、反映先を1つ追加すれば対応できる設計です
-- WAF のルールは主要な攻撃パターンの正規表現による簡易版です（OWASP CRS 相当ではありません）
+- WAF のルールは主要な攻撃パターンの正規表現による簡易版です（OWASP CRS 相当ではありません）。普通の文章やコード片を攻撃と誤判定しないよう、各ルールは攻撃特有の文法に絞り、弱い手がかりは単独ではブロックしません（約160件の攻撃／正常入力で誤検知0件を確認）
 
 ## 今後の展望
 

@@ -265,7 +265,7 @@
         <p>入口の見張り役。届いたアクセスを1件ずつ検査し、攻撃の形をしていればその場で止めます。AI ではなく、決まったルールで動くので一瞬です。</p>
         <dl>
           <dt>調べる場所</dt><dd>URL のパス、パラメータの名前と値、本文（JSON は中身を1つずつ）、User-Agent・Referer・X-Forwarded-For・Cookie</dd>
-          <dt>見つける攻撃</dt><dd>SQLインジェクション（7ルール）、XSS（5）、OSコマンド実行（2）、パストラバーサル（2）の計16ルール。検査の前に、URLエンコードやHTMLの文字参照などを元に戻して、書き換えによるすり抜けを防ぎます</dd>
+          <dt>見つける攻撃</dt><dd>SQLインジェクション（8ルール）、XSS（5）、OSコマンド実行（2）、パストラバーサル（2）の計17ルール。検査の前に、URLエンコードやHTMLの文字参照などを元に戻して、書き換えによるすり抜けを防ぎます。各ルールは攻撃特有の文法に絞ってあり、普通の文章やコード片（「update me」「`npm install`」「JavaScript: …」など）は攻撃と誤判定しません。弱い手がかりは単独ではブロックせず、別の手がかりと重なったときだけ止めます</dd>
           <dt>すること</dt><dd>ブロック中のIP・メンテナンス中の確認、攻撃の遮断、AI チームへの通知（Pub/Sub）、許可かブロックかを返す</dd>
           <dt>ファイル</dt><dd><code>services/target/app/waf.py</code>（ルール）、<code>ingest.py</code>（調べる場所）、<code>main.py</code>（判定の順番）</dd>
         </dl>
@@ -365,13 +365,13 @@
       <div class="table-wrap"><table>
         <tr><th>ファイル</th><th>役割</th></tr>
         <tr><td class="path"><code>app/main.py</code></td><td>サービスの入口。<code>POST /ingest</code> で認証（取り込みキー／シミュレーター／AgentGuard 自身）→ ミハリの検査 → ブロック中・メンテナンス中の確認 → 攻撃なら Pub/Sub へ通知、の順に処理して許可かブロックを返す。<code>/health</code></td></tr>
-        <tr><td class="path"><code>app/waf.py</code></td><td>ミハリのルール16個と、検査前の整え（エンコードを戻すなど）</td></tr>
+        <tr><td class="path"><code>app/waf.py</code></td><td>ミハリのルール17個（攻撃特有の文法に絞り、普通の文章を誤判定しない）と、検査前の整え（エンコードを戻すなど）</td></tr>
         <tr><td class="path"><code>app/ingest.py</code></td><td>届いたアクセスの形式チェック、調べる場所の組み立て、接続元IPの扱い</td></tr>
         <tr><td class="path"><code>app/store.py</code></td><td>Firestore の読み取り（取り込みキー → アカウント、ブロックリスト、メンテナンス状態）と短時間のキャッシュ</td></tr>
         <tr><td class="path"><code>app/events.py</code></td><td>攻撃イベントを Pub/Sub に送る</td></tr>
         <tr><td class="path"><code>app/net.py</code></td><td>IPアドレスの補助と、ダッシュボードのサービスアカウントの ID トークン確認</td></tr>
         <tr><td class="path"><code>app/config.py</code> / <code>logs.py</code></td><td>設定（環境変数）と、構造化ログ</td></tr>
-        <tr><td class="path"><code>tests/</code></td><td>ルールの検知と誤検知、取り込み口の流れ、認証のテスト（64件）</td></tr>
+        <tr><td class="path"><code>tests/</code></td><td>ルールの検知と誤検知、取り込み口の流れ、認証のテスト（111件）</td></tr>
       </table></div>
 
       <h3>services/agent（AI チーム）</h3>
@@ -453,7 +453,7 @@ bash infra/setup-cloud.sh push https://agent-&lt;PROJECT_NUMBER&gt;.asia-northea
 bash infra/deploy.sh dashboard
 
 # テスト
-cd services/target &amp;&amp; uv run pytest      # 64件
+cd services/target &amp;&amp; uv run pytest      # 111件
 cd services/agent  &amp;&amp; uv run pytest      # 44件</pre>
       <div class="table-wrap"><table>
         <tr><th>Google Cloud のサービス</th><th>使い道</th></tr>
