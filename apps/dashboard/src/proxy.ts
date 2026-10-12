@@ -96,5 +96,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // Static build assets carry no application logic; everything else (pages, data, API) is inspected.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // The self-status card polls a fixed, input-free counter, so its polls are not counted as visits.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/self-status$).*)"],
 };

@@ -48,7 +48,7 @@ case "${1:-}" in
     firebase_vars="$(grep -E '^FIREBASE_[A-Z_]+=' "$env_file" | tr -d '\r' | paste -sd, -)"
     g run deploy dashboard --source "$ROOT/apps/dashboard" "${common[@]}" \
       --service-account "$(sa sa-dashboard)" --allow-unauthenticated \
-      --set-env-vars "PROJECT_ID=$PROJECT_ID,TARGET_URL=$(url target),KMS_KEY=projects/$PROJECT_ID/locations/$REGION/keyRings/byok/cryptoKeys/tenant-gemini-key,SELF_PROTECT=${SELF_PROTECT:-on},$firebase_vars" \
+      --set-env-vars "PROJECT_ID=$PROJECT_ID,TARGET_URL=$(url target),KMS_KEY=projects/$PROJECT_ID/locations/$REGION/keyRings/byok/cryptoKeys/tenant-gemini-key,SELF_PROTECT=${SELF_PROTECT:-on},SELF_TENANT_ID=$SELF_TENANT_ID,$firebase_vars" \
       --cpu 1 --memory 1Gi --min-instances "${DASHBOARD_MIN_INSTANCES:-1}" --max-instances 3 --concurrency 80 --timeout 60
     ;;
   *) echo "usage: $0 target | agent | dashboard" >&2; exit 2 ;;

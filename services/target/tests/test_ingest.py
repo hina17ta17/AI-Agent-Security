@@ -22,6 +22,7 @@ class FakeStore:
         self.state = TenantState(tenant_id=TENANT)
         self.hits: list[str] = []
         self.reports: list[str] = []
+        self.self_reports = 0
 
     async def tenant_for_ingest_key(self, key_hash):
         if key_hash == hashlib.sha256(INGEST_KEY.encode()).hexdigest():
@@ -39,6 +40,9 @@ class FakeStore:
 
     async def note_site_report(self, tenant_id):
         self.reports.append(tenant_id)
+
+    async def note_self_report(self):
+        self.self_reports += 1
 
 
 class FakePublisher:
@@ -172,6 +176,14 @@ def test_dashboard_reports_its_own_visitors_to_the_self_tenant(env):
     # real address is kept (this is real traffic, not the simulator).
     assert event["tenantId"] == "self-tenant"
     assert event["simulated"] is False and event["srcIp"] == "198.51.100.9"
+
+
+def test_self_protection_is_counted_for_the_public_status(env):
+    client, store, _ = env
+    with_self_tenant("self-tenant")
+    client.post("/ingest", json={"path": "/", "ip": "198.51.100.9", "agentguardSelf": True},
+                headers={"authorization": "Bearer good-sa-token"})
+    assert store.self_reports == 1 and store.reports == ["self-tenant"]
 
 
 def test_self_protection_needs_the_dashboard_token(env):

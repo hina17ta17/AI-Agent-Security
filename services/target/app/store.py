@@ -48,6 +48,8 @@ class Store:
         self._tenants = _TTLCache()
         self._keys = _TTLCache()
         self._reports = _TTLCache()
+        self._self_checked = 0
+        self._self_flushed = 0.0
 
     async def note_site_report(self, tenant_id: str) -> None:
         """Let the dashboard show "your site is connected": record the last report, at most once a minute."""
@@ -56,6 +58,19 @@ class Store:
             return
         self._reports.put(tenant_id, True, ttl=60)
         await self.db.collection("tenants").document(tenant_id).update({"siteLastReportAt": firestore.SERVER_TIMESTAMP})
+
+    async def note_self_report(self) -> None:
+        """Count AgentGuard's own inspected requests for the public "AgentGuard protects itself" card.
+
+        Counted in memory and written at most once a minute per instance, so a burst costs one write.
+        """
+        self._self_checked += 1
+        now = time.monotonic()
+        if now - self._self_flushed < 60:
+            return
+        checked, self._self_checked, self._self_flushed = self._self_checked, 0, now
+        await self.db.collection("status").document("self").set(
+            {"lastCheckedAt": firestore.SERVER_TIMESTAMP, "checked": firestore.Increment(checked)}, merge=True)
 
     async def tenant_for_ingest_key(self, key_hash: str) -> tuple[str | None, str | None]:
         """Map a hashed ingest key to (tenantId, host). Cached briefly; only the hash is ever stored."""

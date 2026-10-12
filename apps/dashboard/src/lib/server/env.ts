@@ -11,6 +11,8 @@ export const env = {
   projectId: () => required("PROJECT_ID"),
   targetUrl: () => required("TARGET_URL").replace(/\/$/, ""),
   kmsKey: () => required("KMS_KEY"),
+  /** The account that receives AgentGuard's own incidents (empty: self-protection is not set up). */
+  selfTenantId: () => process.env.SELF_TENANT_ID ?? "",
   firebase: () => ({
     apiKey: required("FIREBASE_API_KEY"),
     authDomain: required("FIREBASE_AUTH_DOMAIN"),

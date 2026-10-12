@@ -7,6 +7,7 @@ import { useSession } from "@/lib/auth-context";
 import { useTenant } from "@/lib/hooks";
 import type { ProtectedSite } from "@/lib/types";
 
+import { ConnectWizard } from "./connect-wizard";
 import { ConnectionStatus } from "./connection-status";
 import { IntegrationCode, KeyBox } from "./site-connect";
 import type { ServerFramework } from "./site-snippets";
@@ -35,10 +36,9 @@ function RegisterForm({ onRegistered }: { onRegistered: (key: string | null) => 
 
   return (
     <form onSubmit={submit} className="space-y-3">
-      <p className="text-sm text-muted">守りたいご自分のサイトのURLを登録してください（1アカウント1つまで）。登録すると、サイトにつなぐための「接続キー」が発行されます。</p>
-      <p className="text-xs text-muted">
-        保存するのはサイトのURLと所有確認の状態だけです。サイトの中身や、ふつうの訪問者の情報は保存しません
-        （攻撃と判定したときだけ、攻撃元IPと攻撃内容の一部を記録します）。
+      <p className="text-sm text-muted">
+        守りたい<b className="text-ink">ご自分のサイトのURL</b>を入れて「登録する」を押してください（1アカウント1つまで）。
+        このあと、キーとコードをサイトに入れる手順を1つずつ案内します。
       </p>
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
@@ -51,6 +51,10 @@ function RegisterForm({ onRegistered }: { onRegistered: (key: string | null) => 
         <Button type="submit" disabled={busy || url.trim().length < 4}>{busy ? "登録中…" : "登録する"}</Button>
       </div>
       {error && <p className="text-sm text-rose-600">{error}</p>}
+      <p className="text-xs text-muted">
+        保存するのはサイトのURLと、つながっているかどうかだけです。サイトの中身や、ふつうの訪問者の情報は保存しません
+        （攻撃と判定したときだけ、攻撃元IPと攻撃内容の一部を記録します）。
+      </p>
     </form>
   );
 }
@@ -90,23 +94,24 @@ function VerifiedPanel({ site, keyHint, connectionKey, verifiedMode, onRotate }:
       ) : (
         <>
           <ConnectionStatus />
-          <KeyBox connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} />
-          <div>
-            <p className="mb-1 text-xs font-bold text-ink">組み込みコード（サイトに入れたままにします）</p>
-            <IntegrationCode framework={framework} onFramework={setFramework} basePath={site.path ?? ""} />
-          </div>
           <p className="text-xs text-muted">
-            各アクセスが AgentGuard で検査され、攻撃はこのダッシュボードに表示されます。AgentGuard に届かないときはサイトを止めずに通します。
+            サイトに届くアクセスは1件ずつ AgentGuard が検査し、攻撃はその場で止めて、このダッシュボードに表示します。
+            AgentGuard に届かないときは、サイトを止めずにそのまま通します。
           </p>
+          {connectionKey && <KeyBox connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} />}
+          <details className="rounded-2xl border border-line p-3 text-xs">
+            <summary className="cursor-pointer font-semibold text-brand">接続キー・組み込みコードをもう一度見る</summary>
+            <div className="mt-3 space-y-3">
+              {!connectionKey && <KeyBox connectionKey={null} keyHint={keyHint} onRotate={onRotate} />}
+              <IntegrationCode framework={framework} onFramework={setFramework} basePath={site.path ?? ""} />
+            </div>
+          </details>
         </>
       )}
       <Button variant="ghost" disabled={busy} onClick={remove}><Trash2 size={14} /> 保護をやめる / 別のサイトに変更</Button>
     </div>
   );
 }
-
-
-
 
 export function SiteCard() {
   const { api } = useSession();
@@ -116,6 +121,11 @@ export function SiteCard() {
   // older registration). SiteCard stays mounted across pending -> verified, so it is kept here.
   const [connectionKey, setConnectionKey] = useState<string | null>(null);
   const [verifiedMode, setVerifiedMode] = useState<"connected" | "private" | "public" | "dns" | null>(null);
+  const [otherMethods, setOtherMethods] = useState(false);
+  const onVerified = (key: string | null, mode: "connected" | "private" | "public" | "dns") => {
+    if (key) setConnectionKey(key);
+    setVerifiedMode(mode);
+  };
 
   async function rotate() {
     const r = await api<{ connectionKey: string }>("/api/site", { body: { action: "rotate" } });
@@ -129,9 +139,17 @@ export function SiteCard() {
       <div className="p-5">
         {!site ? (
           <RegisterForm onRegistered={setConnectionKey} />
+        ) : site.status === "pending" && !otherMethods ? (
+          <ConnectWizard site={site} connectionKey={connectionKey} keyHint={tenant?.ingestKeyHint} onRotate={rotate}
+                         onVerified={onVerified} onOtherMethods={() => setOtherMethods(true)} />
         ) : site.status === "pending" ? (
-          <VerifyWizard site={site} connectionKey={connectionKey} keyHint={tenant?.ingestKeyHint} onRotate={rotate}
-                        onVerified={(key, mode) => { if (key) setConnectionKey(key); setVerifiedMode(mode); }} />
+          <div className="space-y-3">
+            <button type="button" onClick={() => setOtherMethods(false)} className="text-xs font-semibold text-brand hover:underline">
+              ← かんたんな3ステップに戻る
+            </button>
+            <VerifyWizard site={site} connectionKey={connectionKey} keyHint={tenant?.ingestKeyHint} onRotate={rotate}
+                          onVerified={onVerified} />
+          </div>
         ) : (
           <VerifiedPanel site={site} keyHint={tenant?.ingestKeyHint} connectionKey={connectionKey}
                          verifiedMode={verifiedMode} onRotate={rotate} />

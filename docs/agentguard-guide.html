@@ -333,7 +333,7 @@
         <div class="box"><h4>同時に多数の攻撃</h4><p class="muted">AI の同時調査は1アカウント3件まで。それ以上は「攻撃の波」としてルールで即ブロック（30件同時で検知から約1.5秒）。</p></div>
         <div class="box"><h4>APIキー（BYOK）</h4><p class="muted">自分の Gemini APIキーは Cloud KMS で暗号化して保存。ダッシュボードは暗号化だけ、AI サービスは復号だけができ、開発者も中身を見られません。</p></div>
         <div class="box"><h4>ログインの保護</h4><p class="muted">ログイン履歴（IPは最後の部分を伏せて保存）、いつもと違う端末の警告、すべての端末からのログアウト（API とデータベースのルールの両方で古いログインを拒否）。</p></div>
-        <div class="box"><h4>AgentGuard 自身の保護</h4><p class="muted">ダッシュボードへのアクセスも Proxy でミハリが検査。鍵を置かずにサービスアカウントで認証し、応答がないときは止めずに通します。</p></div>
+        <div class="box"><h4>AgentGuard 自身の保護</h4><p class="muted">ダッシュボードへのアクセス（ログイン画面を含む）も Proxy でミハリが検査。鍵を置かずにサービスアカウントで認証し、応答がないときは止めずに通します。最後の検査・検査した件数・止めた攻撃は、トップ画面とダッシュボードの「このサイト自身も守っています」に、だれでも見える形で出ます（件数だけで、中身は出しません）。</p></div>
         <div class="box"><h4>接続元IPの扱い</h4><p class="muted">Cloud Run では <code>X-Forwarded-For</code> の<b>最後</b>が本当の接続元。前の部分は接続元が自由に書けるので使いません。</p></div>
       </div>
     </section>
@@ -343,14 +343,9 @@
       <h2><span class="num">6</span>サイトの登録と保護</h2>
       <ol class="flow">
         <li><b>URL を登録する</b>（設定 →「守るサイト」）。https の公開サイトなら登録できます。<code>https://ユーザー名.github.io/リポジトリ/</code> のようなフォルダの下のサイトにも対応しています。登録すると<b>接続キー</b>が1度だけ表示されます（AgentGuard にはハッシュだけを保存）。</li>
-        <li><b>キー1つとコード1つを入れる。</b>サイトの環境変数 <code>AGENTGUARD_KEY</code> に接続キーを置き、設定画面の組み込みコード（Next.js / Express / FastAPI）をコピーしてサイトに入れ、公開し直します。このコードが所有確認への答えと保護の両方を行います。</li>
-        <li><b>つながったか確かめる。</b>サイトを一度開くと、設定画面に「サイトとつながっています（最後の報告：○分前）」と表示されます。</li>
-        <li><b>所有確認をする。</b>他人のサイトを勝手に登録できないようにするためです。
-          <ul>
-            <li><b>A. ファイル（おすすめ）</b>：AgentGuard は毎回ちがう「問題」を付けて <code>/.well-known/agentguard-verify.txt</code> を読みに行き、組み込みコードが接続キーから作った答え（HMAC-SHA256）だけを返します。<b>キーは外から見えません</b>。HTML だけのサイトは合言葉のファイルをそのまま置きます（見えても悪用はできず、確認後に消せます）。</li>
-            <li><b>B. DNS の TXT レコード</b>：独自ドメインを持っている人向け。</li>
-          </ul>
-        </li>
+        <li><b>画面の3ステップに沿って入れる。</b>①サイトの種類（Next.js / Express / FastAPI）を選ぶ → ②接続キーをサイトの環境変数 <code>AGENTGUARD_KEY</code> に入れる（Vercel・Cloud Run・自分のPC ごとに、押す場所まで案内）→ ③組み込みコードを決まったファイルに貼って公開し直す。</li>
+        <li><b>あとは自動。</b>サイトを一度開くと合図が届き、画面が緑になって、<b>所有確認も自動で終わります</b>（押すボタンはありません）。組み込みコードは、AgentGuard が毎回ちがう「問題」を付けて <code>/.well-known/agentguard-verify.txt</code> を読みに来たとき、接続キーから作った答え（HMAC-SHA256）だけを返すので、<b>キーは外から見えません</b>。所有確認は、他人のサイトを勝手に登録できないようにするためです。</li>
+        <li><b>ほかの方法</b>（「ほかの方法で所有確認する」から）：HTML だけのサイトは合言葉のファイルを置く方法、独自ドメインを持っている人は DNS の TXT レコードでも確認できます。</li>
         <li><b>キーをなくしたら</b>「キーをなくした・作り直す」で新しいキーにできます（古いキーはすぐ使えなくなります）。</li>
       </ol>
       <div class="note warn">GitHub Pages や HTML だけのサイトは、サーバーで動くプログラムを置けないため、登録はできても保護はできません。保護には Node.js や Python などで動くサイトが必要です。</div>
@@ -376,7 +371,7 @@
         <tr><td class="path"><code>app/events.py</code></td><td>攻撃イベントを Pub/Sub に送る</td></tr>
         <tr><td class="path"><code>app/net.py</code></td><td>IPアドレスの補助と、ダッシュボードのサービスアカウントの ID トークン確認</td></tr>
         <tr><td class="path"><code>app/config.py</code> / <code>logs.py</code></td><td>設定（環境変数）と、構造化ログ</td></tr>
-        <tr><td class="path"><code>tests/</code></td><td>ルールの検知と誤検知、取り込み口の流れ、認証のテスト（51件）</td></tr>
+        <tr><td class="path"><code>tests/</code></td><td>ルールの検知と誤検知、取り込み口の流れ、認証のテスト（54件）</td></tr>
       </table></div>
 
       <h3>services/agent（AI チーム）</h3>
@@ -457,7 +452,7 @@ bash infra/setup-cloud.sh push https://agent-&lt;PROJECT_NUMBER&gt;.asia-northea
 bash infra/deploy.sh dashboard
 
 # テスト
-cd services/target &amp;&amp; uv run pytest      # 51件
+cd services/target &amp;&amp; uv run pytest      # 54件
 cd services/agent  &amp;&amp; uv run pytest      # 44件</pre>
       <div class="table-wrap"><table>
         <tr><th>Google Cloud のサービス</th><th>使い道</th></tr>

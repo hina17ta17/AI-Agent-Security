@@ -10,6 +10,7 @@ import { IncidentTabs } from "@/components/incident-tabs";
 import { LiveFeed } from "@/components/live-feed";
 import { Metrics } from "@/components/metrics";
 import { ReportCard } from "@/components/report";
+import { SelfGuard } from "@/components/self-guard";
 import { StatusHero } from "@/components/status-hero";
 import { moodsFor, TeamPanel } from "@/components/team-panel";
 import { WaveCard } from "@/components/wave-card";
@@ -81,6 +82,7 @@ export default function DashboardPage() {
         </div>
         <div className="min-w-0 space-y-5">
           <AttackSimulator />
+          <SelfGuard compact />
           <Metrics latest={incidents[0] ?? null} incidents={incidents} blocklist={blocklist} usage={usage} aiMode={tenant?.aiMode} />
           <BlocklistCard entries={blocklist} />
         </div>

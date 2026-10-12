@@ -7,6 +7,7 @@ import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
 import { Logo } from "@/components/logo";
 import { type Member, Mascot, TEAM } from "@/components/mascots";
+import { SelfGuard } from "@/components/self-guard";
 import { Button, cx } from "@/components/ui";
 import { authErrorMessage, useAuth } from "@/lib/auth-context";
 
@@ -140,6 +141,8 @@ export default function Home() {
             </div>
           ))}
         </section>
+
+        <SelfGuard />
       </div>
     </main>
   );

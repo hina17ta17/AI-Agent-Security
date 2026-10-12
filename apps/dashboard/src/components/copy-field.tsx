@@ -11,7 +11,7 @@ export function CopyField({ value, mono = true, label }: { value: string; mono?:
   const multiline = value.includes("\n"); // code: keep the button at the top instead of stretching it
   return (
     <div className={cx("flex gap-2", multiline ? "items-start" : "items-stretch")}>
-      <code className={cx("min-w-0 flex-1 overflow-x-auto whitespace-pre rounded-xl border border-line bg-slate-50 px-3 py-2 text-xs", mono && "font-mono")}>
+      <code className={cx("min-w-0 flex-1 overflow-x-auto whitespace-pre rounded-xl border border-line bg-slate-50 px-3 py-2 text-xs", mono && "font-mono", multiline && "max-h-80 overflow-y-auto")}>
         {value}
       </code>
       <button
