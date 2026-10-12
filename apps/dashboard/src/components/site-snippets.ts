@@ -52,7 +52,9 @@ export default async function agentguard(request: NextRequest) {
       }),
       signal: AbortSignal.timeout(2000),
     });
-    if ((await r.json()).block) return new Response("Blocked by AgentGuard", { status: 403 });
+    const d = await r.json();
+    if (d.block) return new Response(\`AgentGuard がこのアクセスを止めました（\${d.reasonJa ?? "攻撃の疑い"}）\`,
+      { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } });
   } catch {
     // AgentGuard に届かないときは通す（サイトを止めない）
   }
@@ -95,7 +97,8 @@ app.use(async (req, res, next) => {
       }),
       signal: AbortSignal.timeout(2000),
     });
-    if ((await r.json()).block) return res.status(403).send("Blocked by AgentGuard");
+    const d = await r.json();
+    if (d.block) return res.status(403).type("text/plain; charset=utf-8").send(\`AgentGuard がこのアクセスを止めました（\${d.reasonJa ?? "攻撃の疑い"}）\`);
   } catch {
     // AgentGuard に届かないときは通す（サイトを止めない）
   }
@@ -137,8 +140,9 @@ async def agentguard(request, call_next):
                 "query": {k: ("[伏せ字]" if SECRET.search(k) else v) for k, v in request.query_params.items()},
                 "headers": {"user-agent": request.headers.get("user-agent", ""), "referer": request.headers.get("referer", "")},
                 "ip": client_ip(request)})
-        if r.json().get("block"):
-            return PlainTextResponse("Blocked by AgentGuard", status_code=403)
+        d = r.json()
+        if d.get("block"):
+            return PlainTextResponse(f"AgentGuard がこのアクセスを止めました（{d.get('reasonJa') or '攻撃の疑い'}）", status_code=403)
     except Exception:
         pass  # AgentGuard に届かないときは通す（サイトを止めない）
     return await call_next(request)`;

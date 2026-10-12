@@ -73,6 +73,51 @@ const WHERE: Record<ServerFramework, { file: string; how: string }> = {
 
 const ALIVE_MS = 15 * 60_000;
 
+// Region codes in the short form of Cloud Run URLs (service-hash-xx.a.run.app).
+const RUN_REGIONS: Record<string, string> = { an: "asia-northeast1", uc: "us-central1", ue: "us-east1", ew: "europe-west1" };
+
+/** The Cloud Run service and region, read from a run.app address (null for other addresses). */
+export function cloudRunService(host: string): { service: string; region: string } | null {
+  const long = host.match(/^(.+)-\d{6,}\.([a-z0-9-]+)\.run\.app$/); // service-PROJECTNUMBER.REGION.run.app
+  if (long) return { service: long[1], region: long[2] };
+  const short = host.match(/^(.+)-[a-z0-9]{10}-([a-z]{2})\.a\.run\.app$/);
+  if (short && RUN_REGIONS[short[2]]) return { service: short[1], region: RUN_REGIONS[short[2]] };
+  return null;
+}
+
+/** For Cloud Run, setting the key is one pasted line in Cloud Shell (it also redeploys the service). */
+function CloudRunShortcut({ host, connectionKey }: { host: string; connectionKey: string | null }) {
+  const run = cloudRunService(host);
+  const service = run?.service ?? "サービス名";
+  const region = run?.region ?? "リージョン";
+  const command = `gcloud run services update ${service} --region ${region} --update-env-vars AGENTGUARD_KEY=${connectionKey ?? "（接続キー）"}`;
+  return (
+    <div className="mt-2 rounded-xl border border-brand/30 bg-brand/5 p-3 text-xs">
+      <p className="font-bold text-ink">いちばんかんたん：Cloud Shell に1行貼るだけ</p>
+      <ol className="mt-1 list-decimal space-y-1 pl-5 text-muted">
+        <li>
+          <a href="https://console.cloud.google.com/run?cloudshell=true" target="_blank" rel="noreferrer"
+             className="inline-flex items-center gap-1 font-semibold text-brand hover:underline">
+            Cloud Shell を開く <ExternalLink size={11} />
+          </a>
+          （Google Cloud の画面の下に、コマンドを打つ黒い画面が開きます。サイトのプロジェクトが選ばれていることを確認）
+        </li>
+        <li>下の1行をコピーして貼り付け、Enter を押す。終わると自動で公開し直されます（1〜2分）。</li>
+      </ol>
+      <div className="mt-2"><CopyField value={command} label="Cloud Shell のコマンド" /></div>
+      {!connectionKey && <p className="mt-1 text-rose-700">キーが表示されていないときは、上の「キーをなくした・作り直す」で新しいキーを出してください。</p>}
+      {run && (
+        <p className="mt-2 text-muted">
+          画面でやる場合：
+          <a href={`https://console.cloud.google.com/run/deploy/${run.region}/${run.service}`} target="_blank" rel="noreferrer"
+             className="font-semibold text-brand hover:underline">{run.service} の編集画面を開く</a>
+          →「変数とシークレット」→「変数を追加」で AGENTGUARD_KEY を追加 →「デプロイ」
+        </p>
+      )}
+    </div>
+  );
+}
+
 function guessKind(host: string): Kind {
   if (host.endsWith(".github.io")) return "static";
   return "next";
@@ -195,9 +240,13 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
                 </button>
               ))}
             </div>
-            <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
-              {HOSTS.find((h) => h.id === host)!.steps.map((s) => <li key={s}>{s}</li>)}
-            </ol>
+            {host === "cloudrun" ? (
+              <CloudRunShortcut host={site.host} connectionKey={connectionKey} />
+            ) : (
+              <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
+                {HOSTS.find((h) => h.id === host)!.steps.map((s) => <li key={s}>{s}</li>)}
+              </ol>
+            )}
           </Step>
 
           <Step n={3} title="コードをサイトに追加して、公開し直す" done={alive}>
