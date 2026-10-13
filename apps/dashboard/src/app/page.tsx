@@ -128,7 +128,7 @@ export default function Home() {
               <span className="size-2 rounded-full bg-safe" /> セキュリティ担当がいなくても大丈夫
             </p>
             <h1 className="mt-4 font-display text-4xl leading-tight font-bold sm:text-5xl">
-              小さなお店のサイトを、<br />
+              自分のお気に入りサイトを、<br />
               <span className="text-gradient">AIのチーム</span>が守ります。
             </h1>
             <p className="mt-4 max-w-xl text-muted">

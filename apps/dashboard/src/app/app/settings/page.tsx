@@ -4,7 +4,6 @@ import { Cpu, ExternalLink, Globe, KeyRound, Lock, LogOut, ShieldCheck, Trash2, 
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
-import { SiteCard } from "@/components/site-card";
 import { Badge, Button, Card, CardHeader, cx } from "@/components/ui";
 import { useAuth, useSession } from "@/lib/auth-context";
 import { remaining, toDate } from "@/lib/format";
@@ -305,7 +304,13 @@ export default function SettingsPage() {
     <div className="mx-auto max-w-3xl space-y-5">
       <h1 className="font-display text-2xl font-bold">設定</h1>
       <MaintenanceCard />
-      <SiteCard />
+      <Card>
+        <CardHeader title="守るサイト" icon={<Globe size={16} className="text-brand" />}
+                    sub="サイトの登録・接続は「守るサイト」のページで行います" />
+        <div className="px-5 pb-5">
+          <Link href="/app/site" className="text-sm font-semibold text-brand hover:underline">守るサイトのページを開く →</Link>
+        </div>
+      </Card>
       <LoginSecurityCard />
       <ApiKeyCard />
       <ModeCard />

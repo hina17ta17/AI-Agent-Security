@@ -1,6 +1,8 @@
 "use client";
 
-import { Check, CircleCheck, ClipboardList, Copy, ExternalLink, Loader2, PartyPopper, Trash2 } from "lucide-react";
+import {
+  ArrowLeft, ArrowRight, Check, CircleCheck, ClipboardList, Copy, Download, ExternalLink, Loader2, PartyPopper, Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/lib/auth-context";
@@ -10,17 +12,19 @@ import type { ProtectedSite } from "@/lib/types";
 
 import { CopyField } from "./copy-field";
 import { KeyBox } from "./site-connect";
-import { integrationSnippet, type ServerFramework } from "./site-snippets";
+import { INSTALL, integrationSnippet, type ServerFramework } from "./site-snippets";
 import { Badge, Button, cx } from "./ui";
 
 /**
- * Connecting a site, in three plain steps: pick the kind of site, put the key in, put the code in.
- * After that nothing more is asked: the first report from the site turns the status green and
- * the ownership check runs by itself.
+ * Connecting a site, one step at a time: (1) what kind of site, (2) put the key in, (3) put one
+ * file in, (4) publish and wait. Only the current step is on screen, with a progress bar above.
+ * The first report from the site moves straight to the last step and checks ownership by itself.
+ * Progress is remembered per site in this browser, so a reload does not start over.
  */
 
 type Kind = ServerFramework | "static";
 type Host = "vercel" | "cloudrun" | "other";
+type Step = 1 | 2 | 3 | 4;
 
 const KINDS: { id: Kind; label: string; sub: string }[] = [
   { id: "next", label: "Next.js", sub: "Vercel などで公開" },
@@ -29,14 +33,15 @@ const KINDS: { id: Kind; label: string; sub: string }[] = [
   { id: "static", label: "HTMLだけのサイト", sub: "GitHub Pages など" },
 ];
 
-const HOSTS: { id: Host; label: string; steps: string[] }[] = [
+const HOSTS: { id: Host; label: string; steps: string[]; publish: string }[] = [
   {
     id: "vercel", label: "Vercel",
     steps: [
-      "vercel.com でこのサイトのプロジェクトを開く",
+      "vercel.com にログインし、このサイトのプロジェクトをクリック",
       "上のメニューの「Settings」→ 左の「Environment Variables」",
       "Key に AGENTGUARD_KEY、Value に上の接続キーを貼って「Save」",
     ],
+    publish: "GitHub に push する（自動で公開し直されます）。push しない場合は Vercel の「Deployments」→ 一番上の「…」→「Redeploy」",
   },
   {
     id: "cloudrun", label: "Cloud Run",
@@ -45,31 +50,25 @@ const HOSTS: { id: Host; label: string; steps: string[] }[] = [
       "「新しいリビジョンの編集とデプロイ」→「変数とシークレット」",
       "「変数を追加」で 名前 AGENTGUARD_KEY、値 に上の接続キーを貼って「デプロイ」",
     ],
+    publish: "いつもの方法でデプロイし直す（例：gcloud run deploy サービス名 --source .）",
   },
   {
     id: "other", label: "それ以外・自分のPC",
     steps: [
-      "サイトのフォルダにある .env ファイルを開く（なければ作る）",
-      "AGENTGUARD_KEY=（上の接続キー） の1行を書いて保存",
+      "サイトのフォルダにある .env ファイルを開く（なければ新しく作る）",
+      "下の「.env に貼る1行」をコピーして貼り付け、保存",
       ".env は GitHub などに公開しないでください",
     ],
+    publish: "サーバーを再起動する（止めて、もう一度起動する）",
   },
 ];
 
-const WHERE: Record<ServerFramework, { file: string; how: string }> = {
-  next: {
-    file: "proxy.ts（Next.js 15 以前は middleware.ts）",
-    how: "package.json と同じ場所に新しいファイルを作り、下のコードを丸ごと貼り付けます（src フォルダを使っている場合は src の中）。",
-  },
-  express: {
-    file: "サーバーのファイル（server.js / app.js など）",
-    how: "const app = express() と app.use(express.json()) の下、ほかの app.get などより前に貼り付けます。",
-  },
-  fastapi: {
-    file: "main.py",
-    how: "app = FastAPI() の下に貼り付けます（httpx を使うので、まだなら pip install httpx）。",
-  },
-};
+const STEPS: { n: Step; label: string }[] = [
+  { n: 1, label: "種類" },
+  { n: 2, label: "キー" },
+  { n: 3, label: "ファイル" },
+  { n: 4, label: "公開・確認" },
+];
 
 const ALIVE_MS = 15 * 60_000;
 
@@ -128,68 +127,119 @@ function guessHost(host: string): Host {
   return "other";
 }
 
+/** Save the integration file in the browser's Downloads folder. */
+function download(name: string, content: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: "text/plain;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+type Saved = { step: Step; kind: Kind; host: Host };
+const storageKey = (siteUrl: string) => `agentguard.connect.${siteUrl}`;
+
+function load(site: ProtectedSite): Saved {
+  const fallback: Saved = { step: 1, kind: guessKind(site.host), host: guessHost(site.host) };
+  try {
+    const raw = window.localStorage.getItem(storageKey(site.url));
+    return raw ? { ...fallback, ...(JSON.parse(raw) as Partial<Saved>) } : fallback;
+  } catch {
+    return fallback; // private mode or blocked storage: start at step 1
+  }
+}
+
+function save(siteUrl: string, s: Saved) {
+  try {
+    window.localStorage.setItem(storageKey(siteUrl), JSON.stringify(s));
+  } catch {
+    // only a convenience
+  }
+}
+
 /**
- * The whole setup as one block of text: site, key line, which file, the code, and the three steps.
+ * The whole setup as one block of text: site, key line, which file, the code, and the steps.
  * A non-technical owner can copy this and hand it to whoever manages the site — the "anyone can do
  * it" path. It contains the secret key, so it is offered only while the key is on screen.
  */
 function buildHandoff(kind: ServerFramework, url: string, key: string, snippet: string): string {
+  const i = INSTALL[kind];
   return [
-    "【AgentGuard 連携手順】このサイトを守るための設定です（2〜3分で終わります）",
+    "【AgentGuard 連携手順】このサイトを守るための設定です（5分ほどで終わります）",
     "",
     `対象サイト：${url}`,
     `種類：${KINDS.find((k) => k.id === kind)!.label}`,
-    "",
-    "― やること（3つ）―",
     "",
     "1) サーバーの環境変数に、次の1行を追加する：",
     `   AGENTGUARD_KEY=${key}`,
     "   ※ このキーは秘密です。公開リポジトリやHTMLには書かず、サーバーの環境変数にだけ入れてください。",
     "",
-    `2) 次のコードを「${WHERE[kind].file}」に追加する：`,
-    `   （${WHERE[kind].how}）`,
+    `2) 下のコードを「${i.fileName}」という名前のファイルに保存し、${i.place}に置く。`,
+    ...(i.addLines ? [`   さらに ${i.addWhere} に、次を足す：`, ...i.addLines.split("\n").map((l) => `     ${l}`)] : []),
     "",
-    "----- ここからコード -----",
+    `----- ${i.fileName} ここから -----`,
     snippet,
-    "----- ここまで -----",
+    `----- ${i.fileName} ここまで -----`,
     "",
     "3) いつもどおりサイトを公開し直し、ブラウザで一度開く。",
-    "   → AgentGuard の設定画面が自動で「つながりました」に変わり、設定は完了です。",
+    "   → AgentGuard の「守るサイト」画面が自動で「つながりました」に変わり、設定は完了です。",
   ].join("\n");
 }
 
 function HandoffBundle({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="rounded-2xl border border-brand/30 bg-brand/5 p-4">
-      <p className="flex items-center gap-2 text-sm font-bold text-ink">
-        <ClipboardList size={16} className="text-brand" /> 自分で設定しない場合：手順をまとめてコピー
+    <div className="rounded-2xl border border-line bg-slate-50 p-3">
+      <p className="flex items-center gap-2 text-xs font-bold text-ink">
+        <ClipboardList size={14} className="text-brand" /> 自分で設定しない場合
       </p>
-      <p className="mt-1 text-xs text-muted">
-        サイトを作った人・管理している人に、下のボタンでコピーした手順をそのまま渡せば設定できます（キー・コード・手順が全部入っています）。
-      </p>
+      <p className="mt-0.5 text-[11px] text-muted">サイトを作った人・管理している人に、この手順（キー・ファイル・やること入り）をそのまま渡してください。</p>
       <button
         type="button"
         onClick={() => { navigator.clipboard?.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-        className="mt-2 inline-flex items-center gap-1.5 rounded-xl border border-brand bg-white px-3 py-2 text-sm font-semibold text-brand hover:bg-brand/5"
+        className="mt-2 inline-flex items-center gap-1.5 rounded-xl border border-brand bg-white px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/5"
       >
-        {copied ? <><Check size={15} /> コピーしました（渡す相手に貼り付け）</> : <><Copy size={15} /> 設定手順をまとめてコピー</>}
+        {copied ? <><Check size={14} /> コピーしました（渡す相手に貼り付け）</> : <><Copy size={14} /> 設定手順をまとめてコピー</>}
       </button>
-      <p className="mt-2 text-[11px] text-muted">※ この手順には秘密の接続キーが含まれます。渡す相手以外には共有しないでください。</p>
+      <p className="mt-1.5 text-[11px] text-muted">※ 秘密の接続キーが含まれます。渡す相手以外には共有しないでください。</p>
     </div>
   );
 }
 
-function Step({ n, title, done, children }: { n: number; title: string; done?: boolean; children: React.ReactNode }) {
+function Progress({ current, done, onGo }: { current: Step; done: (n: Step) => boolean; onGo: (n: Step) => void }) {
   return (
-    <div className="rounded-2xl border border-line p-4">
-      <p className="flex items-center gap-2 text-sm font-bold text-ink">
-        <span className={cx("grid size-6 place-items-center rounded-full text-xs text-white", done ? "bg-safe" : "bg-brand")}>
-          {done ? <CircleCheck size={14} /> : n}
-        </span>
-        {title}
-      </p>
-      <div className="mt-3">{children}</div>
+    <ol className="grid grid-cols-4 gap-1.5" aria-label="設定の進み具合">
+      {STEPS.map((s) => {
+        const isDone = done(s.n);
+        const isNow = s.n === current;
+        return (
+          <li key={s.n}>
+            <button type="button" onClick={() => onGo(s.n)} disabled={!isDone && !isNow && s.n > current}
+                    aria-current={isNow ? "step" : undefined}
+                    className="flex w-full flex-col items-center gap-1 disabled:cursor-not-allowed">
+              <span className={cx("h-1.5 w-full rounded-full", isDone ? "bg-safe" : isNow ? "bg-brand" : "bg-line")} />
+              <span className={cx("flex items-center gap-1 text-[11px] font-semibold",
+                isNow ? "text-brand" : isDone ? "text-emerald-700" : "text-muted")}>
+                {isDone ? <CircleCheck size={12} /> : <span className="tabular-nums">{s.n}</span>} {s.label}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function Nav({ onBack, onNext, nextLabel = "次へ", nextDisabled = false }: {
+  onBack?: () => void; onNext?: () => void; nextLabel?: string; nextDisabled?: boolean;
+}) {
+  return (
+    <div className="mt-5 flex items-center justify-between gap-2">
+      {onBack ? (
+        <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft size={14} /> 戻る</Button>
+      ) : <span />}
+      {onNext && <Button onClick={onNext} disabled={nextDisabled}>{nextLabel} <ArrowRight size={15} /></Button>}
     </div>
   );
 }
@@ -205,8 +255,7 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
   const { api, ingestUrl } = useSession();
   const tenant = useTenant().data;
   const now = useNow(3000);
-  const [kind, setKind] = useState<Kind>(() => guessKind(site.host));
-  const [host, setHost] = useState<Host>(() => guessHost(site.host));
+  const [state, setState] = useState<Saved>(() => load(site));
   const [checking, setChecking] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -214,6 +263,15 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
 
   const last = toDate(tenant?.siteLastReportAt);
   const alive = last !== null && now - last.getTime() < ALIVE_MS;
+  const { kind, host } = state;
+  // A report from the site means the key and the file are already in place: show the last step.
+  const step: Step = alive && kind !== "static" ? 4 : state.step;
+  const update = (patch: Partial<Saved>) => {
+    const next = { ...state, ...patch };
+    setState(next);
+    save(site.url, next);
+  };
+  const go = (n: Step) => update({ step: n });
 
   const verify = useCallback(async () => {
     setChecking(true);
@@ -243,56 +301,64 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
     try { await api("/api/site", { body: { action: "remove" } }); } finally { setBusy(false); }
   }
 
+  const fw = kind === "static" ? null : kind;
+  const install = fw ? INSTALL[fw] : null;
+  const code = fw ? integrationSnippet(fw, ingestUrl, site.path ?? "") : "";
+  const hostSpec = HOSTS.find((h) => h.id === host)!;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="break-all font-mono text-sm font-bold">{site.url}</span>
-        <Badge tone="warn">つなぐ準備中</Badge>
+        <Badge tone="warn">つなぐ途中</Badge>
       </div>
-      <p className="text-sm text-muted">
-        あと3ステップで、このサイトを守れます。<b className="text-ink">キーとコードをサイトに入れるだけ</b>で、
-        あとは AgentGuard が自動でつながりを確かめます。自分でできない場合は、下の「手順をまとめてコピー」を使ってください。
-      </p>
 
-      {kind !== "static" && connectionKey && (
-        <HandoffBundle text={buildHandoff(kind, site.url, connectionKey, integrationSnippet(kind, ingestUrl, site.path ?? ""))} />
-      )}
+      <Progress current={step} done={(n) => n < step} onGo={(n) => { if (n <= step) go(n); }} />
 
-      <Step n={1} title="サイトの種類を選ぶ" done={kind !== "static"}>
-        {kind !== "static" && (
-          <p className="mb-2 text-xs text-muted">URL から<b className="text-ink">「{KINDS.find((k) => k.id === kind)!.label}」</b>と推測しました。違う場合は選び直してください。</p>
+      <div className="rounded-2xl border border-line p-4 sm:p-5">
+        {step === 1 && (
+          <>
+            <p className="text-sm font-bold text-ink">ステップ1：サイトの種類を選ぶ</p>
+            <p className="mt-1 text-xs text-muted">
+              URL から<b className="text-ink">「{KINDS.find((k) => k.id === kind)!.label}」</b>と推測しました。違う場合は選び直してください。
+              分からないときは、サイトを作った人に「何で作ったか」を聞いてください。
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {KINDS.map((k) => (
+                <button key={k.id} type="button" onClick={() => update({ kind: k.id })}
+                        className={cx("rounded-xl border p-2.5 text-left transition",
+                          kind === k.id ? "border-brand bg-brand/5 ring-2 ring-brand/20" : "border-line bg-white hover:border-brand/40")}>
+                  <span className="block text-sm font-bold text-ink">{k.label}</span>
+                  <span className="block text-[11px] text-muted">{k.sub}</span>
+                </button>
+              ))}
+            </div>
+            {kind === "static" ? (
+              <div className="mt-4 rounded-xl border border-warn/40 bg-warn/10 p-3 text-xs text-amber-900">
+                <p className="font-bold">HTMLだけのサイトは、守ることができません</p>
+                <p className="mt-1">
+                  守るには、届いたアクセスをサイトの中で AgentGuard に知らせるプログラムが必要ですが、GitHub Pages などの
+                  HTMLだけのサイトではプログラムを動かせないためです。Next.js・Express・FastAPI で作ったサイトなら守れます。
+                </p>
+                <button type="button" onClick={onOtherMethods} className="mt-2 font-semibold text-brand hover:underline">
+                  所有確認だけ行う（ファイル・DNS の方法）→
+                </button>
+              </div>
+            ) : (
+              <Nav onNext={() => go(2)} />
+            )}
+          </>
         )}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {KINDS.map((k) => (
-            <button key={k.id} type="button" onClick={() => setKind(k.id)}
-                    className={cx("rounded-xl border p-2.5 text-left transition",
-                      kind === k.id ? "border-brand bg-brand/5 ring-2 ring-brand/20" : "border-line bg-white hover:border-brand/40")}>
-              <span className="block text-sm font-bold text-ink">{k.label}</span>
-              <span className="block text-[11px] text-muted">{k.sub}</span>
-            </button>
-          ))}
-        </div>
-      </Step>
 
-      {kind === "static" ? (
-        <div className="rounded-2xl border border-warn/40 bg-warn/10 p-4 text-sm text-amber-900">
-          <p className="font-bold">HTMLだけのサイトは、守ることができません</p>
-          <p className="mt-1 text-xs">
-            守るには、届いたアクセスをサイトの中で AgentGuard に知らせるプログラムが必要ですが、GitHub Pages などの
-            HTMLだけのサイトではプログラムを動かせないためです。Next.js・Express・FastAPI で作ったサイトなら守れます。
-          </p>
-          <button type="button" onClick={onOtherMethods} className="mt-2 text-xs font-semibold text-brand hover:underline">
-            所有確認だけ行う（ファイル・DNS の方法）→
-          </button>
-        </div>
-      ) : (
-        <>
-          <Step n={2} title="接続キーを、サイトの設定に入れる" done={alive}>
-            <KeyBox connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} />
-            <p className="mt-3 text-xs font-bold text-ink">どこに入れる？（サイトを公開している場所を選んでください）</p>
+        {step === 2 && fw && (
+          <>
+            <p className="text-sm font-bold text-ink">ステップ2：接続キーを、サイトの設定に入れる</p>
+            <p className="mt-1 text-xs text-muted">接続キーは、あなたのサイトだけが AgentGuard とつながるための合言葉です。</p>
+            <div className="mt-3"><KeyBox connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} /></div>
+            <p className="mt-4 text-xs font-bold text-ink">サイトを公開している場所は？</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {HOSTS.map((h) => (
-                <button key={h.id} type="button" onClick={() => setHost(h.id)}
+                <button key={h.id} type="button" onClick={() => update({ host: h.id })}
                         className={cx("rounded-full border px-3 py-1 text-xs font-semibold",
                           host === h.id ? "border-brand bg-brand/10 text-brand" : "border-line bg-white text-muted hover:border-brand/40")}>
                   {h.label}
@@ -304,7 +370,7 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
             ) : (
               <>
                 <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
-                  {HOSTS.find((h) => h.id === host)!.steps.map((s) => <li key={s}>{s}</li>)}
+                  {hostSpec.steps.map((s) => <li key={s}>{s}</li>)}
                 </ol>
                 {host === "other" && connectionKey && (
                   <div className="mt-2">
@@ -314,48 +380,93 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
                 )}
               </>
             )}
-          </Step>
+            <Nav onBack={() => go(1)} onNext={() => go(3)} nextLabel="キーを入れた" />
+          </>
+        )}
 
-          <Step n={3} title="コードをサイトに追加して、公開し直す" done={alive}>
-            <p className="text-xs text-muted">
-              ファイル：<b className="text-ink">{WHERE[kind].file}</b>。{WHERE[kind].how}
-              保存したら、いつもどおりサイトを公開し直します（Vercel なら GitHub に push するだけ）。
+        {step === 3 && fw && install && (
+          <>
+            <p className="text-sm font-bold text-ink">ステップ3：ファイルを1つ置く</p>
+            <p className="mt-1 text-xs text-muted">
+              下のボタンで <b className="font-mono text-ink">{install.fileName}</b> をダウンロードし、
+              <b className="text-ink">{install.place}</b>に置きます。
+              {install.addLines ? "あとは指定の場所に1〜2行足すだけです。" : "置くだけで終わりです（コードの書き換えはいりません）。"}
             </p>
-            <div className="mt-2">
-              <CopyField value={integrationSnippet(kind, ingestUrl, site.path ?? "")} label="組み込みコード" />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button onClick={() => download(install.fileName, code)}>
+                <Download size={15} /> {install.fileName} をダウンロード
+              </Button>
             </div>
-          </Step>
-
-          <div className={cx("rounded-2xl p-4 text-sm", alive ? "bg-safe/10 text-emerald-900" : "bg-slate-100 text-muted")}
-               role="status">
-            {!alive ? (
-              <div className="flex items-start gap-2">
-                <Loader2 size={16} className="mt-0.5 shrink-0 animate-spin" />
-                <div>
-                  <p className="font-bold text-ink">サイトからの合図を待っています</p>
-                  <p className="mt-0.5 text-xs">
-                    公開し直したら、サイトを一度ブラウザで開いてください。合図が届くと、ここが自動で緑になり、所有確認も自動で終わります。
-                  </p>
-                  <a href={site.url} target="_blank" rel="noreferrer"
-                     className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline">
-                    サイトを開く <ExternalLink size={12} />
-                  </a>
-                </div>
-              </div>
-            ) : checking ? (
-              <p className="flex items-center gap-2 font-bold"><Loader2 size={16} className="animate-spin" /> つながりました。所有を確認しています…</p>
-            ) : problem ? (
-              <div>
-                <p className="font-bold text-ink">つながりましたが、所有確認でつまずきました</p>
-                <p className="mt-0.5 text-xs text-rose-700">{problem}</p>
-                <Button size="sm" className="mt-2" onClick={() => void verify()}>もう一度確認する</Button>
-              </div>
-            ) : (
-              <p className="flex items-center gap-2 font-bold"><PartyPopper size={16} /> つながりました！</p>
+            <p className="mt-4 text-xs font-bold text-ink">置く場所</p>
+            <pre className="mt-1 overflow-x-auto rounded-xl border border-line bg-slate-50 px-3 py-2 font-mono text-[11px] leading-relaxed text-ink">{install.tree}</pre>
+            {fw === "next" && (
+              <p className="mt-1 text-[11px] text-muted">
+                Next.js 15 以前は、ファイル名を <code className="font-mono">middleware.ts</code> に変えてください。
+                すでに同じ名前のファイルがある場合は、サイトを作った人に相談してください（中身をまとめる必要があります）。
+              </p>
             )}
-          </div>
-        </>
-      )}
+            {install.addLines && (
+              <>
+                <p className="mt-4 text-xs font-bold text-ink">足す行（{install.addWhere}）</p>
+                <div className="mt-1"><CopyField value={install.addLines} label="足す行" /></div>
+                <p className="mt-2 text-[11px] font-semibold text-muted">足したあとの見た目（例）</p>
+                <pre className="mt-1 overflow-x-auto rounded-xl border border-line bg-slate-50 px-3 py-2 font-mono text-[11px] leading-relaxed text-ink">{install.context}</pre>
+              </>
+            )}
+            <details className="mt-3 text-xs">
+              <summary className="cursor-pointer font-semibold text-brand">ダウンロードできないとき：中身をコピーする</summary>
+              <div className="mt-2"><CopyField value={code} label={`${install.fileName} の中身`} /></div>
+            </details>
+            <Nav onBack={() => go(2)} onNext={() => go(4)} nextLabel="ファイルを置いた" />
+          </>
+        )}
+
+        {step === 4 && fw && (
+          <>
+            <p className="text-sm font-bold text-ink">ステップ4：公開し直して、つながるのを待つ</p>
+            <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
+              <li>{hostSpec.publish}</li>
+              <li>公開が終わったら、
+                <a href={site.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-brand hover:underline">
+                  サイトを一度開く <ExternalLink size={11} />
+                </a>
+              </li>
+              <li>この画面を開いたまま待つ（自動で「つながりました」に変わります）</li>
+            </ol>
+            <div className={cx("mt-4 rounded-xl p-4 text-sm", alive ? "bg-safe/10 text-emerald-900" : "bg-slate-100 text-muted")} role="status">
+              {!alive ? (
+                <p className="flex items-center gap-2 font-semibold text-ink">
+                  <Loader2 size={16} className="shrink-0 animate-spin" /> サイトからの合図を待っています…
+                </p>
+              ) : checking ? (
+                <p className="flex items-center gap-2 font-bold"><Loader2 size={16} className="animate-spin" /> つながりました。所有を確認しています…</p>
+              ) : problem ? (
+                <div>
+                  <p className="font-bold text-ink">つながりましたが、所有確認でつまずきました</p>
+                  <p className="mt-0.5 text-xs text-rose-700">{problem}</p>
+                  <Button size="sm" className="mt-2" onClick={() => void verify()}>もう一度確認する</Button>
+                </div>
+              ) : (
+                <p className="flex items-center gap-2 font-bold"><PartyPopper size={16} /> つながりました！</p>
+              )}
+            </div>
+            {!alive && (
+              <details className="mt-3 text-xs text-muted">
+                <summary className="cursor-pointer font-semibold text-brand">5分たっても変わらないとき</summary>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  <li>環境変数の名前が <code className="font-mono">AGENTGUARD_KEY</code>（すべて大文字）になっているか</li>
+                  <li>キーを入れたあと、公開し直したか（Vercel・Cloud Run は環境変数を変えたら公開し直しが必要）</li>
+                  <li>ファイル名と置き場所が合っているか（{install?.fileName}・{install?.place}）</li>
+                  <li>それでもだめなら「戻る」で手順を見直すか、下の「自分で設定しない場合」で手順を人に渡してください</li>
+                </ul>
+              </details>
+            )}
+            <Nav onBack={() => go(3)} />
+          </>
+        )}
+      </div>
+
+      {fw && connectionKey && <HandoffBundle text={buildHandoff(fw, site.url, connectionKey, code)} />}
 
       <div className="flex flex-wrap gap-3 text-xs">
         {kind !== "static" && (

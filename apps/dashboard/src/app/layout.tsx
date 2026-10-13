@@ -10,7 +10,7 @@ const mono = JetBrains_Mono({ variable: "--font-jbmono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "AgentGuard",
-  description: "小さなお店のサイトを、AIのチームが守ります。攻撃を検知した瞬間だけAIが出動して、解析・防御・報告まで自律的に行います。",
+  description: "自分のお気に入りサイトを、AIのチームが守ります。攻撃を検知した瞬間だけAIが出動して、解析・防御・報告まで自律的に行います。",
 };
 
 export const viewport: Viewport = { themeColor: "#4f46e5" };

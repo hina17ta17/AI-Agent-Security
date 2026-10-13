@@ -29,8 +29,10 @@ export function integrationSnippet(fw: ServerFramework, ingestUrl: string, baseP
   const verifyPath = `${basePath}${VERIFY}`;
   if (fw === "next") {
     return `// AgentGuard 連携（Next.js）
-// ファイル：Next.js 16 以降は proxy.ts、15 以前は middleware.ts（app フォルダと同じ階層。src を使っているなら src/ の中）
-// 環境変数 AGENTGUARD_KEY に接続キーを設定するだけで、所有確認と保護の両方が動きます。
+// 1) このファイル（proxy.ts）を、package.json と同じフォルダに置く（src フォルダを使っているなら src の中）
+//    ※ Next.js 15 以前は、ファイル名を middleware.ts にしてください
+// 2) 環境変数 AGENTGUARD_KEY に接続キーを設定する
+// これだけで、所有確認と保護の両方が動きます。コードの書き換えは不要です。
 import { NextResponse, type NextRequest } from "next/server";
 
 const AGENTGUARD_INGEST = "${ingestUrl}";
@@ -108,8 +110,12 @@ export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)
   }
   if (fw === "express") {
     return `// AgentGuard 連携（Express）
-// 環境変数 AGENTGUARD_KEY に接続キーを設定するだけで、所有確認と保護の両方が動きます。
-// app.use(express.json()) などの後、ほかのルートより前に置いてください。
+// 1) このファイル（agentguard.cjs）を、server.js（または app.js）と同じフォルダに置く
+// 2) server.js の app.use(express.json()) のすぐ下に、次の1行を足す
+//      require("./agentguard.cjs")(app);
+//    （import を使うプロジェクトなら： import agentguard from "./agentguard.cjs"; agentguard(app); ）
+// 3) 環境変数 AGENTGUARD_KEY に接続キーを設定する
+// これだけで、所有確認と保護の両方が動きます。
 const { createHmac } = require("node:crypto");
 
 const AGENTGUARD_INGEST = "${ingestUrl}";
@@ -118,38 +124,45 @@ ${JS_MASK}
 // 本当の接続元は X-Forwarded-For の最後（前の部分は偽装できます）
 const clientIp = (req) => (req.get("x-forwarded-for") || "").split(",").pop().trim() || req.socket.remoteAddress;
 
-app.use(async (req, res, next) => {
-  const key = process.env.AGENTGUARD_KEY;
-  if (!key) return next();
-  if (req.path === AGENTGUARD_VERIFY_PATH) {
-    // 所有確認：キーそのものは見せずに、毎回ちがう問題への答えだけを返す
-    const secret = createHmac("sha256", key).update("agentguard-verify").digest();
-    const answer = createHmac("sha256", secret).update(String(req.query.challenge || "")).digest("hex");
-    return res.type("text/plain").send(answer);
-  }
-  try {
-    const r = await fetch(AGENTGUARD_INGEST, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: "Bearer " + key },
-      body: JSON.stringify({
-        method: req.method, path: req.path, query: mask(req.query),
-        headers: { "user-agent": req.get("user-agent") || "", referer: req.get("referer") || "", "content-type": "application/json" },
-        // フォームと JSON の中身も検査します
-        body: req.body && typeof req.body === "object" && Object.keys(req.body).length ? JSON.stringify(mask(req.body)).slice(0, 60000) : "",
-        ip: clientIp(req),
-      }),
-      signal: AbortSignal.timeout(2000),
-    });
-    const d = await r.json();
-    if (d.block) return res.status(403).type("text/plain; charset=utf-8").send("AgentGuard がこのアクセスを止めました（" + (d.reasonJa ?? "攻撃の疑い") + "）");
-  } catch {
-    // AgentGuard に届かないときは通す（サイトを止めない）
-  }
-  next();
-});`;
+module.exports = function agentguard(app) {
+  app.use(async (req, res, next) => {
+    const key = process.env.AGENTGUARD_KEY;
+    if (!key) return next();
+    if (req.path === AGENTGUARD_VERIFY_PATH) {
+      // 所有確認：キーそのものは見せずに、毎回ちがう問題への答えだけを返す
+      const secret = createHmac("sha256", key).update("agentguard-verify").digest();
+      const answer = createHmac("sha256", secret).update(String(req.query.challenge || "")).digest("hex");
+      return res.type("text/plain").send(answer);
+    }
+    try {
+      const r = await fetch(AGENTGUARD_INGEST, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer " + key },
+        body: JSON.stringify({
+          method: req.method, path: req.path, query: mask(req.query),
+          headers: { "user-agent": req.get("user-agent") || "", referer: req.get("referer") || "", "content-type": "application/json" },
+          // フォームと JSON の中身も検査します
+          body: req.body && typeof req.body === "object" && Object.keys(req.body).length ? JSON.stringify(mask(req.body)).slice(0, 60000) : "",
+          ip: clientIp(req),
+        }),
+        signal: AbortSignal.timeout(2000),
+      });
+      const d = await r.json();
+      if (d.block) return res.status(403).type("text/plain; charset=utf-8").send("AgentGuard がこのアクセスを止めました（" + (d.reasonJa ?? "攻撃の疑い") + "）");
+    } catch {
+      // AgentGuard に届かないときは通す（サイトを止めない）
+    }
+    next();
+  });
+};`;
   }
   return `# AgentGuard 連携（FastAPI）
-# 環境変数 AGENTGUARD_KEY に接続キーを設定するだけで、所有確認と保護の両方が動きます。
+# 1) このファイル（agentguard.py）を、main.py と同じフォルダに置く
+# 2) main.py の app = FastAPI() のすぐ下に、次の2行を足す
+#      from agentguard import protect
+#      protect(app)
+# 3) 環境変数 AGENTGUARD_KEY に接続キーを設定する（httpx を使うので、まだなら pip install httpx）
+# これだけで、所有確認と保護の両方が動きます。
 import hashlib, hmac, json, os, re
 from urllib.parse import parse_qsl, urlencode
 
@@ -195,35 +208,69 @@ async def body_of(request):
     return "", ""
 
 
-@app.middleware("http")
-async def agentguard(request, call_next):
-    key = os.environ.get("AGENTGUARD_KEY")
-    if not key:
-        return await call_next(request)
-    if request.url.path == AGENTGUARD_VERIFY_PATH:
-        # 所有確認：キーそのものは見せずに、毎回ちがう問題への答えだけを返す
-        secret = hmac.new(key.encode(), b"agentguard-verify", hashlib.sha256).digest()
-        challenge = request.query_params.get("challenge", "").encode()
-        return PlainTextResponse(hmac.new(secret, challenge, hashlib.sha256).hexdigest())
-    try:
-        query = {}  # 同じ名前の値が複数あるときは、すべて送ります
-        for k, v in request.query_params.multi_items():
-            query.setdefault(k, []).append(v)
-        query = mask({k: v[0] if len(v) == 1 else v for k, v in query.items()})
-        body, ctype = await body_of(request)
-        async with httpx.AsyncClient(timeout=2.0) as c:
-            r = await c.post(AGENTGUARD_INGEST, headers={"authorization": "Bearer " + key}, json={
-                "method": request.method, "path": request.url.path, "query": query, "body": body,
-                "headers": {"user-agent": request.headers.get("user-agent", ""), "referer": request.headers.get("referer", ""),
-                            "content-type": ctype},
-                "ip": client_ip(request)})
-        d = r.json()
-        if d.get("block"):
-            return PlainTextResponse("AgentGuard がこのアクセスを止めました（" + (d.get("reasonJa") or "攻撃の疑い") + "）", status_code=403)
-    except Exception:
-        pass  # AgentGuard に届かないときは通す（サイトを止めない）
-    return await call_next(request)`;
+def protect(app):
+    @app.middleware("http")
+    async def agentguard(request, call_next):
+        key = os.environ.get("AGENTGUARD_KEY")
+        if not key:
+            return await call_next(request)
+        if request.url.path == AGENTGUARD_VERIFY_PATH:
+            # 所有確認：キーそのものは見せずに、毎回ちがう問題への答えだけを返す
+            secret = hmac.new(key.encode(), b"agentguard-verify", hashlib.sha256).digest()
+            challenge = request.query_params.get("challenge", "").encode()
+            return PlainTextResponse(hmac.new(secret, challenge, hashlib.sha256).hexdigest())
+        try:
+            query = {}  # 同じ名前の値が複数あるときは、すべて送ります
+            for k, v in request.query_params.multi_items():
+                query.setdefault(k, []).append(v)
+            query = mask({k: v[0] if len(v) == 1 else v for k, v in query.items()})
+            body, ctype = await body_of(request)
+            async with httpx.AsyncClient(timeout=2.0) as c:
+                r = await c.post(AGENTGUARD_INGEST, headers={"authorization": "Bearer " + key}, json={
+                    "method": request.method, "path": request.url.path, "query": query, "body": body,
+                    "headers": {"user-agent": request.headers.get("user-agent", ""), "referer": request.headers.get("referer", ""),
+                                "content-type": ctype},
+                    "ip": client_ip(request)})
+            d = r.json()
+            if d.get("block"):
+                return PlainTextResponse("AgentGuard がこのアクセスを止めました（" + (d.get("reasonJa") or "攻撃の疑い") + "）", status_code=403)
+        except Exception:
+            pass  # AgentGuard に届かないときは通す（サイトを止めない）
+        return await call_next(request)`;
 }
+
+/**
+ * How each framework is installed, in the owner's terms: the file to save (and where), the folder
+ * picture, and the line(s) to add to an existing file. Next.js needs no edit at all.
+ */
+export const INSTALL: Record<ServerFramework, {
+  fileName: string; place: string; tree: string; addLines: string | null; addWhere: string | null; context: string | null;
+}> = {
+  next: {
+    fileName: "proxy.ts",
+    place: "package.json と同じフォルダ（src フォルダがあるなら src の中）",
+    tree: "あなたのサイトのフォルダ/\n├─ package.json\n├─ next.config.js\n├─ proxy.ts        ← ここに置く（新しいファイル）\n└─ app/",
+    addLines: null,
+    addWhere: null,
+    context: null,
+  },
+  express: {
+    fileName: "agentguard.cjs",
+    place: "server.js（または app.js）と同じフォルダ",
+    tree: "あなたのサイトのフォルダ/\n├─ package.json\n├─ server.js       ← ここに1行足す\n└─ agentguard.cjs  ← ここに置く（新しいファイル）",
+    addLines: 'require("./agentguard.cjs")(app);',
+    addWhere: "server.js の app.use(express.json()) のすぐ下（app.get などのルートより前）",
+    context: 'const app = express();\napp.use(express.json());\nrequire("./agentguard.cjs")(app);   // ← この1行を足す\n\napp.get("/", (req, res) => { ... });',
+  },
+  fastapi: {
+    fileName: "agentguard.py",
+    place: "main.py と同じフォルダ",
+    tree: "あなたのサイトのフォルダ/\n├─ requirements.txt\n├─ main.py         ← ここに2行足す\n└─ agentguard.py   ← ここに置く（新しいファイル）",
+    addLines: "from agentguard import protect\nprotect(app)",
+    addWhere: "main.py の app = FastAPI() のすぐ下",
+    context: "app = FastAPI()\nfrom agentguard import protect   # ← この2行を足す\nprotect(app)\n\n@app.get(\"/\")\ndef home(): ...",
+  },
+};
 
 /** Where to put AGENTGUARD_KEY, by hosting service. */
 export const KEY_PLACES: { name: string; how: string }[] = [

@@ -122,7 +122,7 @@ export function StatusHero({ tenant, incident, defendedAt }: {
               </a>
             ) : (
               <Link
-                href="/app/settings"
+                href="/app/site"
                 className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold text-brand hover:bg-brand/5"
               >
                 {tenant?.site ? "サイトとの連携を仕上げる" : "守るサイトを登録する"} <ArrowRight size={14} />

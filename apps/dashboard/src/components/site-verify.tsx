@@ -9,7 +9,7 @@ import type { ProtectedSite } from "@/lib/types";
 import { ConnectionStatus } from "./connection-status";
 import { CopyField } from "./copy-field";
 import { KeyBox } from "./site-connect";
-import { integrationSnippet, KEY_PLACES } from "./site-snippets";
+import { INSTALL, integrationSnippet, KEY_PLACES } from "./site-snippets";
 import { Badge, Button, cx } from "./ui";
 
 /**
@@ -200,7 +200,10 @@ function FilePlace({ site, framework, setFramework, connectionKey, keyHint, onRo
             <KeyBox connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} />
           </div>
           <div>
-            <p className="mb-1 text-xs font-bold text-ink">(2) 次のコードをサイトに追加する</p>
+            <p className="mb-1 text-xs font-bold text-ink">
+              (2) 次のコードを <code className="font-mono">{INSTALL[framework].fileName}</code> として保存し、{INSTALL[framework].place}に置く
+              {INSTALL[framework].addLines && <>（さらに{INSTALL[framework].addWhere}に <code className="font-mono">{INSTALL[framework].addLines.replace("\n", " / ")}</code> を足す）</>}
+            </p>
             <CopyField value={integrationSnippet(framework, ingestUrl, site.path ?? "")} label="組み込みコード" />
             <details className="mt-1 text-xs text-muted">
               <summary className="cursor-pointer font-semibold text-brand">環境変数 AGENTGUARD_KEY の設定場所</summary>

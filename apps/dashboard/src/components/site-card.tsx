@@ -41,14 +41,20 @@ function RegisterForm({ onRegistered }: { onRegistered: (key: string | null) => 
     <form onSubmit={submit} className="space-y-3">
       <p className="text-sm text-muted">
         守りたい<b className="text-ink">ご自分のサイトのURL</b>を入れて「登録する」を押してください（1アカウント1つまで）。
-        このあと、キーとコードをサイトに入れる手順を1つずつ案内します。
+        ブラウザのアドレス欄に出ている、サイトのトップページのURLをそのまま貼れば大丈夫です。
       </p>
+      <ol className="grid grid-cols-2 gap-1.5 text-[11px] text-muted sm:grid-cols-4">
+        {["① 種類を選ぶ", "② キーを入れる", "③ ファイルを置く", "④ 公開して待つ"].map((t) => (
+          <li key={t} className="rounded-lg bg-slate-50 px-2 py-1.5 text-center font-semibold">{t}</li>
+        ))}
+      </ol>
+      <p className="text-xs text-muted">登録すると、上の4つを1つずつ案内します（5分ほど）。最後は自動で「つながりました」になります。</p>
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
           type="url"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://example.com"
+          placeholder="https://my-site.vercel.app"
           className="h-11 flex-1 rounded-xl border border-line bg-white px-4 font-mono text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
         />
         <Button type="submit" disabled={busy || url.trim().length < 4}>{busy ? "登録中…" : "登録する"}</Button>
@@ -148,7 +154,7 @@ export function SiteCard() {
         ) : site.status === "pending" ? (
           <div className="space-y-3">
             <button type="button" onClick={() => setOtherMethods(false)} className="text-xs font-semibold text-brand hover:underline">
-              ← かんたんな3ステップに戻る
+              ← かんたんな4ステップに戻る
             </button>
             <VerifyWizard site={site} connectionKey={connectionKey} keyHint={tenant?.ingestKeyHint} onRotate={rotate}
                           onVerified={onVerified} />

@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useSession } from "@/lib/auth-context";
 
 import { CopyField } from "./copy-field";
-import { integrationSnippet, KEY_PLACES, type ServerFramework } from "./site-snippets";
+import { INSTALL, integrationSnippet, KEY_PLACES, type ServerFramework } from "./site-snippets";
 import { Button, cx } from "./ui";
 
 /**
@@ -75,6 +75,10 @@ export function IntegrationCode({ framework, onFramework, basePath }: {
           </button>
         ))}
       </div>
+      <p className="text-xs text-muted">
+        ファイル名：<b className="font-mono text-ink">{INSTALL[framework].fileName}</b>（{INSTALL[framework].place}に置く）
+        {INSTALL[framework].addLines && <>。{INSTALL[framework].addWhere}に <code className="font-mono">{INSTALL[framework].addLines.replace("\n", " / ")}</code> を足す</>}
+      </p>
       <CopyField value={integrationSnippet(framework, ingestUrl, basePath)} label="組み込みコード" />
       <details className="text-xs text-muted">
         <summary className="cursor-pointer font-semibold text-brand">環境変数 AGENTGUARD_KEY の設定場所</summary>
