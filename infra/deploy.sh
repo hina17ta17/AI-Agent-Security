@@ -37,7 +37,7 @@ case "${1:-}" in
     # waiting for cold starts; per tenant at most MAX_CONCURRENT_AI_PER_TENANT of them run the AI team.
     g run deploy agent --source "$ROOT/services/agent" "${common[@]}" \
       --service-account "$(sa sa-agent)" --no-allow-unauthenticated \
-      --set-env-vars "PROJECT_ID=$PROJECT_ID,REGION=$REGION,ENABLE_CLOUD_TRACE=true,ARMOR_LOCATION=us,DEMO_DAILY_LIMIT_GLOBAL=${DEMO_DAILY_LIMIT_GLOBAL:-300},MAX_CONCURRENT_AI_PER_TENANT=${MAX_CONCURRENT_AI_PER_TENANT:-3}" \
+      --set-env-vars "PROJECT_ID=$PROJECT_ID,REGION=$REGION,ENABLE_CLOUD_TRACE=true,ARMOR_LOCATION=us,DEMO_DAILY_LIMIT_GLOBAL=${DEMO_DAILY_LIMIT_GLOBAL:-300},MAX_CONCURRENT_AI_PER_TENANT=${MAX_CONCURRENT_AI_PER_TENANT:-3},SELF_TENANT_ID=$SELF_TENANT_ID" \
       --cpu 1 --memory 1Gi --cpu-boost --min-instances "${AGENT_MIN_INSTANCES:-1}" --max-instances 10 \
       --concurrency 40 --timeout 180
     ;;

@@ -33,6 +33,31 @@ JST = timezone(timedelta(hours=9))
 tracer = trace.get_tracer("agentguard.agent")
 
 
+def quota_limits(s: Settings, tenant_id: str, tenant: dict) -> tuple[int | None, int | None, int | None]:
+    """(daily, lifetime, project-wide) caps on AI runs for this account; None means no cap.
+
+    - Own Gemini key (BYOK): the owner's own daily cap, or none if they chose "制限なし".
+    - Demo: N per day and M ever per account, within the project-wide daily demo cap.
+    - Operator accounts (quotaOverride, e.g. the shared judge account): their daily cap, no lifetime cap.
+    - AgentGuard's own protection: a separate daily budget, so demo users cannot use it up and it
+      does not use theirs (it runs on the project's Gemini, like demo mode, with no API key).
+    """
+    wants_byok = tenant.get("aiMode") == "byok"
+    # Operator-set override. Clients cannot write tenant docs (Firestore rules), so only operators set it.
+    override = (tenant.get("quotaOverride") or {}).get("byok" if wants_byok else "demo")
+    has_override = isinstance(override, int) and 0 < override <= 10000
+
+    if wants_byok:
+        raw = tenant["byokDailyLimit"] if "byokDailyLimit" in tenant else s.byok_daily_limit_per_tenant
+        own = raw if (raw is None or (isinstance(raw, int) and raw > 0)) else s.byok_daily_limit_per_tenant
+        return (override if has_override else own), None, None
+    if s.self_tenant_id and tenant_id == s.self_tenant_id:
+        return s.self_daily_limit, None, None
+    if has_override:
+        return override, None, s.demo_daily_limit_global
+    return s.demo_daily_limit_per_tenant, s.demo_total_limit_per_tenant, s.demo_daily_limit_global
+
+
 class Pipeline:
     def __init__(self, settings: Settings, store: Store, gatekeeper: Gatekeeper):
         self.settings = settings
@@ -288,22 +313,7 @@ class Pipeline:
         """Returns (report_markdown, failure_reason)."""
         s, store, t = self.settings, self.store, inc.tenant_id
         wants_byok = tenant.get("aiMode") == "byok"
-        # Operator-set override (e.g. the shared judge account). Clients cannot write tenant docs.
-        override = (tenant.get("quotaOverride") or {}).get("byok" if wants_byok else "demo")
-        has_override = isinstance(override, int) and 0 < override <= 10000
-
-        if wants_byok:
-            # The owner sets the cap on their own key: an integer, or None for no limit.
-            raw = tenant.get("byokDailyLimit", s.byok_daily_limit_per_tenant) if "byokDailyLimit" in tenant \
-                else s.byok_daily_limit_per_tenant
-            daily_limit = override if has_override else (raw if (raw is None or (isinstance(raw, int) and raw > 0))
-                                                         else s.byok_daily_limit_per_tenant)
-            total_limit, global_limit = None, None
-        else:
-            # Demo: at most N per day and M ever per account; operator demo accounts are exempt.
-            daily_limit = override if has_override else s.demo_daily_limit_per_tenant
-            total_limit = None if has_override else s.demo_total_limit_per_tenant
-            global_limit = s.demo_daily_limit_global
+        daily_limit, total_limit, global_limit = quota_limits(s, t, tenant)
 
         q = await store.consume_quota(t, "byok" if wants_byok else "demo",
                                       daily_limit=daily_limit, total_limit=total_limit, global_limit=global_limit)

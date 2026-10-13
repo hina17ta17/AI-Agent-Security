@@ -334,7 +334,7 @@
         <div class="box"><h4>APIキー（BYOK）</h4><p class="muted">自分の Gemini APIキーは Cloud KMS で暗号化して保存。ダッシュボードは暗号化だけ、AI サービスは復号だけができ、開発者も中身を見られません。</p></div>
         <div class="box"><h4>ログインの保護</h4><p class="muted">最初のログインの瞬間から有効。パスワードの確認と総当たり対策は Firebase Authentication。ログイン履歴（IPは最後の部分を伏せて保存）、いつもと違う端末（ブラウザ／OS）の警告、すべての端末からのログアウト（API とデータベースのルールの両方で古いログインを拒否。盗まれたセッションもこれで止まる）、メールでのパスワード再設定。</p></div>
         <div class="box"><h4>サイトのコードより先に検査</h4><p class="muted">組み込みコードはサイト自身の処理より先に動き、ミハリの判断を待ってから通します。攻撃と判断したアクセス（OSコマンド実行など）はサイトのコードに届かないので、ファイルの書き換えも起きません。<code>AGENTGUARD_FAIL_CLOSED=true</code> にすると、AgentGuard に確認できないときも止めます（そのぶん AgentGuard が止まるとサイトも止まります）。</p></div>
-        <div class="box"><h4>AgentGuard 自身の保護</h4><p class="muted">ダッシュボードへのアクセス（ログイン画面を含む）も Proxy でミハリが検査。鍵を置かずにサービスアカウントで認証し、応答がないときは止めずに通します。最後の検査・検査した件数・止めた攻撃は、トップ画面とダッシュボードの「このサイト自身も守っています」に、だれでも見える形で出ます（件数だけで、中身は出しません）。</p></div>
+        <div class="box"><h4>AgentGuard 自身の保護</h4><p class="muted">ダッシュボードへのアクセス（ログイン画面を含む）も Proxy でミハリが検査。AI チームはプロジェクト自身の Gemini（Agent Platform）をサービスアカウント <code>sa-agent</code> で使い、APIキーは使いません（利用者のデモ枠とは別に1日100回の専用枠）。鍵を置かずにサービスアカウントで認証し、応答がないときは止めずに通します。最後の検査・検査した件数・止めた攻撃は、トップ画面とダッシュボードの「このサイト自身も守っています」に、だれでも見える形で出ます（件数だけで、中身は出しません）。</p></div>
         <div class="box"><h4>AIがループしない仕組み</h4><p class="muted">処理の流れは一方向（戻る辺のない DAG）なので、構造的に無限ループしません。さらに1件あたり <b>全体90秒</b>の制限、道具は <b>4回まで</b>、同じ操作は重複実行しない、AIのイベントが <b>50件</b>を超えたら強制停止、の4重の歯止めがあります。どれかに当たった場合も、攻撃元はミハリが入口で遮断済みで、ルールに基づく一時ブロックで必ず守ります。</p></div>
         <div class="box"><h4>接続元IPの扱い</h4><p class="muted">Cloud Run では <code>X-Forwarded-For</code> の<b>最後</b>が本当の接続元。前の部分は接続元が自由に書けるので使いません。</p></div>
       </div>
@@ -390,7 +390,7 @@
         <tr><td class="path"><code>app/concurrency.py</code></td><td>同時に多数の攻撃が来たときの決まり（AI の枠、状態、攻撃の波のブロック時間）</td></tr>
         <tr><td class="path"><code>app/context.py</code> / <code>models.py</code></td><td>1件の攻撃の作業メモ（使ったトークンと費用など）、イベントと判定のデータ形式</td></tr>
         <tr><td class="path"><code>app/config.py</code> / <code>telemetry.py</code> / <code>logs.py</code></td><td>設定、Cloud Trace への処理の記録、構造化ログ</td></tr>
-        <tr><td class="path"><code>tests/</code></td><td>道具の決まり、ループ対策、回数制限、分岐、信頼の境界、費用計算、同時処理、障害からの回復のテスト（49件）</td></tr>
+        <tr><td class="path"><code>tests/</code></td><td>道具の決まり、ループ対策、回数制限、分岐、信頼の境界、費用計算、同時処理、障害からの回復のテスト（52件）</td></tr>
       </table></div>
 
       <h3>apps/dashboard（ダッシュボード）</h3>
@@ -457,7 +457,7 @@ bash infra/deploy.sh dashboard
 
 # テスト
 cd services/target &amp;&amp; uv run pytest      # 111件
-cd services/agent  &amp;&amp; uv run pytest      # 49件</pre>
+cd services/agent  &amp;&amp; uv run pytest      # 52件</pre>
       <div class="table-wrap"><table>
         <tr><th>Google Cloud のサービス</th><th>使い道</th></tr>
         <tr><td>Cloud Run</td><td>3つのサービスの実行（dashboard・target は公開、agent は非公開）</td></tr>
