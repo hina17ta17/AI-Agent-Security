@@ -3,7 +3,8 @@ import { randomBytes, createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 
 import { db } from "@/lib/server/admin";
-import { requireUser } from "@/lib/server/auth";
+import { requireEditor } from "@/lib/server/auth";
+import { env } from "@/lib/server/env";
 import { handle, HttpError, json, log, readJson } from "@/lib/server/http";
 import {
   type CheckResult,
@@ -32,6 +33,17 @@ const keyData = (uid: string, key: string, host: string, path: string) => ({
 });
 
 type StoredSite = { url?: string; host?: string; path?: string; token?: string; status?: string };
+
+/**
+ * AgentGuard's own addresses (this dashboard, the WAF and the AI team), which nobody may register as
+ * their site. The services share one URL pattern, so the target's address gives the others.
+ */
+function agentGuardHosts(request: Request): Set<string> {
+  const target = new URL(env.targetUrl()).hostname; // target-<number>.<region>.run.app
+  const hosts = new Set([target, new URL(request.url).hostname]);
+  for (const service of ["dashboard", "agent"]) hosts.add(target.replace(/^target-/, `${service}-`));
+  return hosts;
+}
 
 /** Firestore document id for a site: the host, plus the base path when there is one ("/" -> "|"). */
 const claimId = (host: string, path?: string) => (path ? `${host}${path}`.replaceAll("/", "|") : host);
@@ -74,11 +86,14 @@ function rateLimit(uid: string) {
 /** Register a site to protect, verify its ownership, or remove it. One site per account. */
 export async function POST(request: Request) {
   return handle("site", async () => {
-    const { uid } = await requireUser(request);
+    const { uid } = await requireEditor(request);
     const body = await readJson<{ action?: string; url?: string; method?: string }>(request);
 
     if (body.action === "register") {
       const { url, host, path } = normalizeSiteUrl(body.url);
+      if (agentGuardHosts(request).has(host)) {
+        throw new HttpError(400, "AgentGuard 自身のアドレスは登録できません（AgentGuard 自身は、最初から自動で守られています）");
+      }
       const previous = (await tenantRef(uid).get()).get("site") as StoredSite | undefined;
       // Correcting the URL of a pending site on the same host keeps its token and connection key,
       // so what is already set up on the site keeps working.

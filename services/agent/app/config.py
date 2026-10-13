@@ -37,8 +37,7 @@ class Settings:
     demo_total_limit_per_tenant: int  # demo runs per account ever (lifetime cap)
     demo_daily_limit_global: int
     byok_daily_limit_per_tenant: int  # default cap for a new BYOK account (the owner can change it)
-    self_tenant_id: str  # the account that receives AgentGuard's own incidents ("" if not set up)
-    self_daily_limit: int  # AI runs per day for AgentGuard's own protection (its own budget)
+    self_tenant_id: str  # AgentGuard's own account: no AI cap, always the project's Gemini ("" = none)
     dedupe_window_sec: int
     max_block_minutes: int
     fallback_block_minutes: int
@@ -84,7 +83,6 @@ def get_settings() -> Settings:
         demo_daily_limit_global=_int("DEMO_DAILY_LIMIT_GLOBAL", 100),
         byok_daily_limit_per_tenant=_int("BYOK_DAILY_LIMIT_PER_TENANT", 200),
         self_tenant_id=os.environ.get("SELF_TENANT_ID", ""),
-        self_daily_limit=_int("SELF_DAILY_LIMIT", 100),
         dedupe_window_sec=_int("DEDUPE_WINDOW_SEC", 300),
         max_block_minutes=_int("MAX_BLOCK_MINUTES", 1440),
         fallback_block_minutes=_int("FALLBACK_BLOCK_MINUTES", 30),

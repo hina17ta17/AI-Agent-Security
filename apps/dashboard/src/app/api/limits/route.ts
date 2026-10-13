@@ -1,5 +1,5 @@
 
-import { requireUser } from "@/lib/server/auth";
+import { requireEditor } from "@/lib/server/auth";
 import { handle, HttpError, json, readJson } from "@/lib/server/http";
 import { audit, tenantRef } from "@/lib/server/tenant";
 
@@ -12,7 +12,7 @@ const MAX = 10000;
  */
 export async function POST(request: Request) {
   return handle("limits", async () => {
-    const { uid } = await requireUser(request);
+    const { uid } = await requireEditor(request);
     const { limit } = await readJson<{ limit?: unknown }>(request);
     let value: number | null;
     if (limit === null) {

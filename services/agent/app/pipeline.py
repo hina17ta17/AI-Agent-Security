@@ -33,15 +33,25 @@ JST = timezone(timedelta(hours=9))
 tracer = trace.get_tracer("agentguard.agent")
 
 
+def is_self(s: Settings, tenant_id: str) -> bool:
+    """The account that receives AgentGuard's own incidents (the dashboard protecting itself)."""
+    return bool(s.self_tenant_id) and tenant_id == s.self_tenant_id
+
+
 def quota_limits(s: Settings, tenant_id: str, tenant: dict) -> tuple[int | None, int | None, int | None]:
     """(daily, lifetime, project-wide) caps on AI runs for this account; None means no cap.
 
+    - AgentGuard's own protection: no cap at all. It always runs on the project's own Gemini (paid
+      from the Google Cloud billing account and its credits), never on anyone's API key. Its cost is
+      still bounded per moment by the 3 concurrent investigations per account, attack waves (rule
+      blocks with no AI), grouping of repeats from one address, and blocked addresses never reaching
+      the AI again.
     - Own Gemini key (BYOK): the owner's own daily cap, or none if they chose "制限なし".
     - Demo: N per day and M ever per account, within the project-wide daily demo cap.
     - Operator accounts (quotaOverride, e.g. the shared judge account): their daily cap, no lifetime cap.
-    - AgentGuard's own protection: a separate daily budget, so demo users cannot use it up and it
-      does not use theirs (it runs on the project's Gemini, like demo mode, with no API key).
     """
+    if is_self(s, tenant_id):
+        return None, None, None
     wants_byok = tenant.get("aiMode") == "byok"
     # Operator-set override. Clients cannot write tenant docs (Firestore rules), so only operators set it.
     override = (tenant.get("quotaOverride") or {}).get("byok" if wants_byok else "demo")
@@ -51,8 +61,6 @@ def quota_limits(s: Settings, tenant_id: str, tenant: dict) -> tuple[int | None,
         raw = tenant["byokDailyLimit"] if "byokDailyLimit" in tenant else s.byok_daily_limit_per_tenant
         own = raw if (raw is None or (isinstance(raw, int) and raw > 0)) else s.byok_daily_limit_per_tenant
         return (override if has_override else own), None, None
-    if s.self_tenant_id and tenant_id == s.self_tenant_id:
-        return s.self_daily_limit, None, None
     if has_override:
         return override, None, s.demo_daily_limit_global
     return s.demo_daily_limit_per_tenant, s.demo_total_limit_per_tenant, s.demo_daily_limit_global
@@ -312,10 +320,15 @@ class Pipeline:
     async def _run_ai(self, inc: Incident, tenant: dict) -> tuple[str | None, str | None]:
         """Returns (report_markdown, failure_reason)."""
         s, store, t = self.settings, self.store, inc.tenant_id
+        own_site = is_self(s, t)
+        # AgentGuard's own protection always uses the project's Gemini (Google Cloud credits), whatever
+        # its account says, so nobody can point it at an API key.
+        if own_site:
+            tenant = {**tenant, "aiMode": "demo"}
         wants_byok = tenant.get("aiMode") == "byok"
         daily_limit, total_limit, global_limit = quota_limits(s, t, tenant)
 
-        q = await store.consume_quota(t, "byok" if wants_byok else "demo",
+        q = await store.consume_quota(t, "self" if own_site else ("byok" if wants_byok else "demo"),
                                       daily_limit=daily_limit, total_limit=total_limit, global_limit=global_limit)
         if not q["allowed"]:
             msg = {
@@ -333,7 +346,8 @@ class Pipeline:
             await inc.step("system", "warning", "登録されたAPIキーを使えませんでした。設定画面でキーを確認してください。")
             return None, "key_unavailable"
         inc.mode = access.mode
-        mode_ja = "あなたのAPIキー" if access.mode == "byok" else "デモモード"
+        mode_ja = ("AgentGuard 自身の守り・Google Cloud のプロジェクトの Gemini" if own_site
+                   else "あなたのAPIキー" if access.mode == "byok" else "デモモード")
         count_ja = f"本日 {used}/{limit} 回目" if limit is not None else f"本日 {used} 回目（制限なし）"
         await inc.step("system", "status", f"AIチーム出動！（{mode_ja}・{count_ja}）")
 

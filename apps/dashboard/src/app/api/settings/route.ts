@@ -1,6 +1,6 @@
 import { isIP } from "node:net";
 
-import { requireUser } from "@/lib/server/auth";
+import { requireEditor } from "@/lib/server/auth";
 import { handle, HttpError, json, readJson } from "@/lib/server/http";
 import { audit, tenantRef } from "@/lib/server/tenant";
 
@@ -20,7 +20,7 @@ function validCidr(entry: string): boolean {
 /** Allowlisted addresses are never blocked by the AI team (enforced in the agent's tool code). */
 export async function POST(request: Request) {
   return handle("settings", async () => {
-    const { uid } = await requireUser(request);
+    const { uid } = await requireEditor(request);
     const { allowlist } = await readJson<{ allowlist?: unknown }>(request);
     if (!Array.isArray(allowlist)) throw new HttpError(400, "許可リストの形式が正しくありません");
     const entries = [...new Set(allowlist.map((e) => String(e).trim()).filter(Boolean))];

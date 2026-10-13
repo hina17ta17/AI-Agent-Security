@@ -1,7 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 
 import { db } from "@/lib/server/admin";
-import { requireUser } from "@/lib/server/auth";
+import { requireEditor } from "@/lib/server/auth";
 import { encryptTenantKey, keyHint, looksLikeApiKey, validateGeminiKey } from "@/lib/server/byok";
 import { handle, HttpError, json, log, readJson } from "@/lib/server/http";
 import { audit, getTenant, tenantRef } from "@/lib/server/tenant";
@@ -16,7 +16,7 @@ const MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
  */
 export async function POST(request: Request) {
   return handle("keys:post", async () => {
-    const { uid } = await requireUser(request);
+    const { uid } = await requireEditor(request);
     await getTenant(uid);
     const body = await readJson<{ apiKey?: unknown }>(request);
     const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : body.apiKey;
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 /** Deletes the stored ciphertext and returns the tenant to demo mode. */
 export async function DELETE(request: Request) {
   return handle("keys:delete", async () => {
-    const { uid } = await requireUser(request);
+    const { uid } = await requireEditor(request);
     const batch = db().batch();
     batch.delete(db().collection("tenantSecrets").doc(uid));
     batch.set(tenantRef(uid), {

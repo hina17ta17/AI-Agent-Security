@@ -1,5 +1,21 @@
 import { adminAuth, db } from "./admin";
+import { env } from "./env";
 import { HttpError } from "./http";
+
+/**
+ * requireUser for actions that change something. AgentGuard's own account (the one that receives
+ * the dashboard's own incidents) is read-only for everyone: even with its password, nobody can
+ * change its site, keys, AI mode, limits, allowlist or blocks, or approve anything for it. Only the
+ * code (the agent and the WAF, as service accounts) writes to it.
+ */
+export async function requireEditor(request: Request): Promise<{ uid: string; authTime: number }> {
+  const user = await requireUser(request);
+  const self = env.selfTenantId();
+  if (self && user.uid === self) {
+    throw new HttpError(403, "AgentGuard 自身の守りは、だれも変更できません（このアカウントは読み取り専用です）");
+  }
+  return user;
+}
 
 /**
  * Every API call carries the Firebase ID token in the Authorization header (no cookies,

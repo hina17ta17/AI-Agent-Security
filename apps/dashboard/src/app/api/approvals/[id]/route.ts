@@ -1,7 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
 import { db } from "@/lib/server/admin";
-import { requireUser } from "@/lib/server/auth";
+import { requireEditor } from "@/lib/server/auth";
 import { handle, HttpError, json, readJson } from "@/lib/server/http";
 import { audit, settleStatus, tenantRef } from "@/lib/server/tenant";
 
@@ -10,7 +10,7 @@ import { audit, settleStatus, tenantRef } from "@/lib/server/tenant";
  */
 export async function POST(request: Request, ctx: RouteContext<"/api/approvals/[id]">) {
   return handle("approvals", async () => {
-    const { uid } = await requireUser(request);
+    const { uid } = await requireEditor(request);
     const { id } = await ctx.params;
     const { decision } = await readJson<{ decision?: string }>(request);
     if (decision !== "approve" && decision !== "reject") throw new HttpError(400, "不明な操作です");

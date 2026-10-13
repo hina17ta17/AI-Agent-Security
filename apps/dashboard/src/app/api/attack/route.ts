@@ -1,6 +1,6 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
-import { requireUser } from "@/lib/server/auth";
+import { requireEditor } from "@/lib/server/auth";
 import { handle, HttpError, json, readJson } from "@/lib/server/http";
 import {
   type AttackKind,
@@ -62,7 +62,7 @@ function summarize(kind: BulkKind, results: (AttackResult | null)[]) {
 /** Reports synthetic attacks for the caller's own tenant. No request ever reaches a real site. */
 export async function POST(request: Request) {
   return handle("attack", async () => {
-    const { uid } = await requireUser(request);
+    const { uid } = await requireEditor(request);
     const { kind } = await readJson<{ kind?: string }>(request);
     const bulk = Object.hasOwn(BULK, kind ?? "") ? (kind as BulkKind) : null;
     if (!bulk && !KINDS.includes(kind as AttackKind)) throw new HttpError(400, "不明な操作です");

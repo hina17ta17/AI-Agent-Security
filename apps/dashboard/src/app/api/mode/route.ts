@@ -1,11 +1,11 @@
-import { requireUser } from "@/lib/server/auth";
+import { requireEditor } from "@/lib/server/auth";
 import { handle, HttpError, json, readJson } from "@/lib/server/http";
 import { audit, getTenant, tenantRef } from "@/lib/server/tenant";
 
 /** Switch between the demo mode and the tenant's own key. */
 export async function POST(request: Request) {
   return handle("mode", async () => {
-    const { uid } = await requireUser(request);
+    const { uid } = await requireEditor(request);
     const { mode } = await readJson<{ mode?: string }>(request);
     if (mode !== "demo" && mode !== "byok") throw new HttpError(400, "不明なモードです");
     const tenant = await getTenant(uid);
