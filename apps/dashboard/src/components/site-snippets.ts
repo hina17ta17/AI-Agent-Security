@@ -33,6 +33,8 @@ export function integrationSnippet(fw: ServerFramework, ingestUrl: string, baseP
 //    ※ Next.js 15 以前は、ファイル名を middleware.ts にしてください
 // 2) 環境変数 AGENTGUARD_KEY に接続キーを設定する
 // これだけで、所有確認と保護の両方が動きます。コードの書き換えは不要です。
+// 検査はサイトの処理より先に行われ、攻撃と判断したアクセスはサイトのコードまで届きません。
+// （任意）AGENTGUARD_FAIL_CLOSED=true も設定すると、AgentGuard に確認できないときもアクセスを止めます。
 import { NextResponse, type NextRequest } from "next/server";
 
 const AGENTGUARD_INGEST = "${ingestUrl}";
@@ -97,11 +99,16 @@ export default async function agentguard(request: NextRequest) {
       }),
       signal: AbortSignal.timeout(2000),
     });
+    if (!r.ok) throw new Error("AgentGuard " + r.status);
     const d = await r.json();
     if (d.block) return new Response("AgentGuard がこのアクセスを止めました（" + (d.reasonJa ?? "攻撃の疑い") + "）",
       { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } });
   } catch {
-    // AgentGuard に届かないときは通す（サイトを止めない）
+    // AgentGuard に確認できないとき：ふだんは通す（サイトを止めない）。FAIL_CLOSED なら安全のため止める
+    if (process.env.AGENTGUARD_FAIL_CLOSED === "true") {
+      return new Response("安全のため、一時的にアクセスを止めています。しばらくしてからもう一度お試しください。",
+        { status: 503, headers: { "content-type": "text/plain; charset=utf-8", "retry-after": "30" } });
+    }
   }
   return NextResponse.next();
 }
@@ -116,6 +123,8 @@ export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)
 //    （import を使うプロジェクトなら： import agentguard from "./agentguard.cjs"; agentguard(app); ）
 // 3) 環境変数 AGENTGUARD_KEY に接続キーを設定する
 // これだけで、所有確認と保護の両方が動きます。
+// 検査はサイトの処理（app.get など）より先に行われ、攻撃と判断したアクセスはサイトのコードまで届きません。
+// （任意）AGENTGUARD_FAIL_CLOSED=true も設定すると、AgentGuard に確認できないときもアクセスを止めます。
 const { createHmac } = require("node:crypto");
 
 const AGENTGUARD_INGEST = "${ingestUrl}";
@@ -147,10 +156,15 @@ module.exports = function agentguard(app) {
         }),
         signal: AbortSignal.timeout(2000),
       });
+      if (!r.ok) throw new Error("AgentGuard " + r.status);
       const d = await r.json();
       if (d.block) return res.status(403).type("text/plain; charset=utf-8").send("AgentGuard がこのアクセスを止めました（" + (d.reasonJa ?? "攻撃の疑い") + "）");
     } catch {
-      // AgentGuard に届かないときは通す（サイトを止めない）
+      // AgentGuard に確認できないとき：ふだんは通す（サイトを止めない）。FAIL_CLOSED なら安全のため止める
+      if (process.env.AGENTGUARD_FAIL_CLOSED === "true") {
+        return res.status(503).set("retry-after", "30").type("text/plain; charset=utf-8")
+          .send("安全のため、一時的にアクセスを止めています。しばらくしてからもう一度お試しください。");
+      }
     }
     next();
   });
@@ -163,6 +177,8 @@ module.exports = function agentguard(app) {
 #      protect(app)
 # 3) 環境変数 AGENTGUARD_KEY に接続キーを設定する（httpx を使うので、まだなら pip install httpx）
 # これだけで、所有確認と保護の両方が動きます。
+# 検査はサイトの処理（@app.get など）より先に行われ、攻撃と判断したアクセスはサイトのコードまで届きません。
+# （任意）AGENTGUARD_FAIL_CLOSED=true も設定すると、AgentGuard に確認できないときもアクセスを止めます。
 import hashlib, hmac, json, os, re
 from urllib.parse import parse_qsl, urlencode
 
@@ -231,11 +247,15 @@ def protect(app):
                     "headers": {"user-agent": request.headers.get("user-agent", ""), "referer": request.headers.get("referer", ""),
                                 "content-type": ctype},
                     "ip": client_ip(request)})
+            r.raise_for_status()
             d = r.json()
             if d.get("block"):
                 return PlainTextResponse("AgentGuard がこのアクセスを止めました（" + (d.get("reasonJa") or "攻撃の疑い") + "）", status_code=403)
         except Exception:
-            pass  # AgentGuard に届かないときは通す（サイトを止めない）
+            # AgentGuard に確認できないとき：ふだんは通す（サイトを止めない）。FAIL_CLOSED なら安全のため止める
+            if os.environ.get("AGENTGUARD_FAIL_CLOSED") == "true":
+                return PlainTextResponse("安全のため、一時的にアクセスを止めています。しばらくしてからもう一度お試しください。",
+                                         status_code=503, headers={"retry-after": "30"})
         return await call_next(request)`;
 }
 

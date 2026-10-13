@@ -380,6 +380,19 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
                 )}
               </>
             )}
+            <details className="mt-4 rounded-xl border border-line p-3 text-xs">
+              <summary className="cursor-pointer font-semibold text-brand">より安全にする（任意）：AgentGuard に確認できないときも止める</summary>
+              <p className="mt-2 text-muted">
+                ふだんは、AgentGuard に届かない・2秒以内に返事がないとき、サイトを止めないようにアクセスを通します。
+                環境変数 <code className="font-mono">AGENTGUARD_FAIL_CLOSED</code> を <code className="font-mono">true</code> にすると、
+                そのときも<b className="text-ink">アクセスを止めて</b>、確認できないアクセスがサイトのコードに届かないようにします。
+              </p>
+              <p className="mt-1 text-muted">
+                そのかわり、AgentGuard が止まっている間や、キーが正しくない間は、サイトが「一時的に利用できません」になります
+                （キーを作り直したら、すぐ環境変数も入れ替えてください）。
+              </p>
+              <div className="mt-2"><CopyField value="AGENTGUARD_FAIL_CLOSED=true" label="追加する環境変数" /></div>
+            </details>
             <Nav onBack={() => go(1)} onNext={() => go(3)} nextLabel="キーを入れた" />
           </>
         )}
