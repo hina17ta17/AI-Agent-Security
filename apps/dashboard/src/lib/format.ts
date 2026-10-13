@@ -82,6 +82,7 @@ export const ACTOR_LABEL: Record<string, string> = {
   "system:fallback": "自動ルール（AI不使用）",
   "system:wave": "攻撃の波（ルール）",
   user: "あなた",
+  owner: "管理者",
   system: "システム",
 };
 
@@ -104,6 +105,7 @@ export const AUDIT_ACTION: Record<string, string> = {
   delete_api_key: "APIキーを削除",
   switch_ai_mode: "AIの実行モードを変更",
   set_byok_limit: "自分のキーの1日の上限を変更",
+  become_self_owner: "AgentGuard の管理者になった",
   confirm_sign_in: "ログインを本人と確認",
   sign_out_everywhere: "すべての端末からログアウト",
 };

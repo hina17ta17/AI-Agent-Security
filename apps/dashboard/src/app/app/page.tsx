@@ -21,6 +21,7 @@ import {
   useIncident,
   useIncidents,
   useNow,
+  useOwnerStatus,
   usePendingApprovals,
   useSteps,
   useTenant,
@@ -30,6 +31,7 @@ import { chime } from "@/lib/sound";
 
 export default function DashboardPage() {
   const tenant = useTenant().data;
+  const owner = useOwnerStatus().status;
   const incidents = useIncidents(20).data;
   const now = useNow(5000); // only for staleness (minutes), so a slow tick is enough
   const { status, activeIds } = liveStatus(tenant, now);
@@ -82,7 +84,7 @@ export default function DashboardPage() {
         </div>
         <div className="min-w-0 space-y-5">
           <AttackSimulator />
-          <SelfGuard compact moreHref="/app/history?tab=self" />
+          <SelfGuard compact moreHref={owner?.isOwner ? "/app/admin" : undefined} />
           <Metrics latest={incidents[0] ?? null} incidents={incidents} blocklist={blocklist} usage={usage} aiMode={tenant?.aiMode} byokLimit={tenant?.byokDailyLimit} />
           <BlocklistCard entries={blocklist} />
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Globe, History, LayoutDashboard, Loader2, LogOut, Settings, Volume2, VolumeX } from "lucide-react";
+import { Crown, Globe, History, LayoutDashboard, Loader2, LogOut, Settings, Volume2, VolumeX } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect } from "react";
@@ -10,7 +10,7 @@ import { Logo } from "@/components/logo";
 import { SecurityBanner } from "@/components/security-banner";
 import { Badge, Button, cx } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
-import { useTenant } from "@/lib/hooks";
+import { useOwnerStatus, useTenant } from "@/lib/hooks";
 import { setMuted, useMuted } from "@/lib/sound";
 
 function ModeBadge() {
@@ -21,6 +21,7 @@ function ModeBadge() {
 
 function Nav() {
   const path = usePathname();
+  const owner = useOwnerStatus().status?.isOwner ?? false; // the manager item is shown to the manager only
   const item = (href: string, label: string, icon: ReactNode) => (
     <Link
       href={href}
@@ -41,6 +42,7 @@ function Nav() {
       {item("/app/site", "守るサイト", <Globe size={16} />)}
       {item("/app/history", "履歴", <History size={16} />)}
       {item("/app/settings", "設定", <Settings size={16} />)}
+      {owner && item("/app/admin", "管理", <Crown size={16} />)}
     </nav>
   );
 }

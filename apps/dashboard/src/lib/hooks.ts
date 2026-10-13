@@ -132,6 +132,24 @@ export function useDemoTotal(): { demoRuns: number; limit: number } | null {
     `usage/${uid}/total`, () => doc(db, "tenants", uid, "usage", "total")).data;
 }
 
+export type OwnerStatus = { available: boolean; claimed: boolean; isOwner: boolean };
+
+/** Whether this account is AgentGuard's manager, and whether anyone is yet. `refresh` re-asks. */
+export function useOwnerStatus(): { status: OwnerStatus | null; refresh: () => void } {
+  const { api, uid } = useSession();
+  const [round, setRound] = useState(0);
+  const [state, setState] = useState<{ key: string; value: OwnerStatus } | null>(null);
+  const key = `${uid}/${round}`;
+  useEffect(() => {
+    let stop = false;
+    api<OwnerStatus>("/api/owner", { body: { action: "status" } })
+      .then((value) => { if (!stop) setState({ key, value }); })
+      .catch(() => {}); // unknown is treated as "not the manager"
+    return () => { stop = true; };
+  }, [api, key]);
+  return { status: state?.key === key ? state.value : null, refresh: () => setRound((r) => r + 1) };
+}
+
 /** Server-aligned "now", re-rendered every `ms` so countdowns and "n秒前" stay fresh. */
 export function useNow(ms = 1000): number {
   const [now, setNow] = useState(() => serverNow());

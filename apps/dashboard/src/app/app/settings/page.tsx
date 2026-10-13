@@ -1,13 +1,13 @@
 "use client";
 
-import { Cpu, ExternalLink, Globe, KeyRound, Lock, LogOut, ShieldCheck, Trash2, UserCheck, Wrench } from "lucide-react";
+import { Crown, Cpu, ExternalLink, Globe, KeyRound, Lock, LogOut, ShieldCheck, Trash2, UserCheck, Wrench } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
 import { Badge, Button, Card, CardHeader, cx } from "@/components/ui";
 import { useAuth, useSession } from "@/lib/auth-context";
 import { remaining, toDate } from "@/lib/format";
-import { useNow, useTenant } from "@/lib/hooks";
+import { useNow, useOwnerStatus, useTenant } from "@/lib/hooks";
 
 function useAction() {
   const [busy, setBusy] = useState(false);
@@ -299,6 +299,51 @@ function LoginSecurityCard() {
   );
 }
 
+function OwnerCard() {
+  const { api } = useSession();
+  const { status, refresh } = useOwnerStatus();
+  const [code, setCode] = useState("");
+  const act = useAction();
+  if (!status?.available) return null;
+  return (
+    <Card>
+      <CardHeader title="AgentGuard の管理者" icon={<Crown size={16} className="text-amber-500" />}
+                  sub="AgentGuard 自身の守りを詳しく見て管理できるのは、管理者の1アカウントだけです" />
+      <div className="p-5 text-sm">
+        {status.isOwner ? (
+          <p>
+            <b className="text-ink">あなたが AgentGuard の管理者です。</b>
+            <Link href="/app/admin" className="ml-2 font-semibold text-brand hover:underline">管理ページを開く →</Link>
+          </p>
+        ) : status.claimed ? (
+          <p className="text-muted">管理者はすでに決まっています（このアカウントではありません）。</p>
+        ) : (
+          <>
+            <p className="text-muted">
+              管理者コードを入れると、<b className="text-ink">今ログインしているこのアカウント</b>が AgentGuard の管理者になります。
+              なれるのは最初に入れた1アカウントだけで、コードは一度しか使えません。
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <input value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" spellCheck={false}
+                     placeholder="管理者コード" aria-label="管理者コード"
+                     className="h-11 flex-1 rounded-xl border border-line bg-white px-4 font-mono text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
+              <Button disabled={act.busy || code.trim().length < 16}
+                      onClick={() => act.run(async () => {
+                        await api("/api/owner", { body: { action: "claim", code: code.trim() } });
+                        setCode("");
+                        refresh();
+                      }, "このアカウントが AgentGuard の管理者になりました。")}>
+                <Crown size={14} /> 管理者になる
+              </Button>
+            </div>
+            <Note m={act.message} />
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -311,6 +356,7 @@ export default function SettingsPage() {
           <Link href="/app/site" className="text-sm font-semibold text-brand hover:underline">守るサイトのページを開く →</Link>
         </div>
       </Card>
+      <OwnerCard />
       <LoginSecurityCard />
       <ApiKeyCard />
       <ModeCard />

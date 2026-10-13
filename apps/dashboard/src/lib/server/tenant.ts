@@ -66,9 +66,10 @@ export async function audit(
   params: Record<string, unknown>,
   result: Record<string, unknown>,
   incidentId: string | null = null,
+  actor = "user", // "owner": AgentGuard's manager acting on AgentGuard's own protection
 ) {
   await tenantRef(uid).collection("audit").add({
-    actor: "user",
+    actor,
     action,
     params,
     result,

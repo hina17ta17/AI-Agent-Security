@@ -9,7 +9,7 @@ import { IncidentList } from "@/components/incident-list";
 import { SelfGuard } from "@/components/self-guard";
 import { Badge, Button, Card, CardHeader, cx, Empty } from "@/components/ui";
 import { ACTOR_LABEL, AUDIT_ACTION, AUDIT_RESULT, dateTimeJst } from "@/lib/format";
-import { useAuditLog, useIncidents, useLogins } from "@/lib/hooks";
+import { useAuditLog, useIncidents, useLogins, useOwnerStatus } from "@/lib/hooks";
 import type { AuditEntry } from "@/lib/types";
 
 /**
@@ -135,13 +135,21 @@ function HistoryTabs() {
   const pathname = usePathname();
   const requested = params.get("tab");
   const tab: Tab = TABS.some((t) => t.id === requested) ? (requested as Tab) : "incidents";
+  const owner = useOwnerStatus().status;
   const select = (id: Tab) => router.replace(`${pathname}?tab=${id}`, { scroll: false });
 
   const body: Record<Tab, ReactNode> = {
     incidents: <IncidentsTab />,
     audit: <AuditTab />,
     logins: <LoginsTab />,
-    self: <SelfGuard detailed />,
+    self: (
+      <div className="space-y-3">
+        <SelfGuard moreHref={owner?.isOwner ? "/app/admin" : undefined} />
+        <p className="text-xs text-muted">
+          AgentGuard 自身が止めた攻撃の詳しい記録（いつ・どこから・どう対処したか）は、AgentGuard の管理者の1アカウントだけが見られます。
+        </p>
+      </div>
+    ),
   };
   return (
     <>
