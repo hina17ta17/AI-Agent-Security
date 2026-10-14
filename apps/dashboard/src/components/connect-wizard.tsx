@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowLeft, ArrowRight, Check, CircleCheck, ClipboardList, Copy, Download, ExternalLink, Loader2, PartyPopper, Trash2,
+  ArrowLeft, ArrowRight, Check, CircleCheck, ClipboardList, Copy, Download, ExternalLink, FolderDown, Loader2, PartyPopper, Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -12,6 +12,7 @@ import type { ProtectedSite } from "@/lib/types";
 
 import { CopyField } from "./copy-field";
 import { KeyBox } from "./site-connect";
+import { cloudRunCommand, cloudRunService, downloadSetupKit, type Host, HOSTS, LOCAL_ENV } from "./setup-kit";
 import { INSTALL, integrationSnippet, type ServerFramework } from "./site-snippets";
 import { Badge, Button, cx } from "./ui";
 
@@ -23,7 +24,6 @@ import { Badge, Button, cx } from "./ui";
  */
 
 type Kind = ServerFramework | "static";
-type Host = "vercel" | "cloudrun" | "other";
 type Step = 1 | 2 | 3 | 4;
 
 const KINDS: { id: Kind; label: string; sub: string }[] = [
@@ -31,36 +31,6 @@ const KINDS: { id: Kind; label: string; sub: string }[] = [
   { id: "express", label: "Express", sub: "Node.js のサーバー" },
   { id: "fastapi", label: "FastAPI", sub: "Python のサーバー" },
   { id: "static", label: "HTMLだけのサイト", sub: "GitHub Pages など" },
-];
-
-const HOSTS: { id: Host; label: string; steps: string[]; publish: string }[] = [
-  {
-    id: "vercel", label: "Vercel",
-    steps: [
-      "vercel.com にログインし、このサイトのプロジェクトをクリック",
-      "上のメニューの「Settings」→ 左の「Environment Variables」",
-      "Key に AGENTGUARD_KEY、Value に上の接続キーを貼って「Save」",
-    ],
-    publish: "GitHub に push する（自動で公開し直されます）。push しない場合は Vercel の「Deployments」→ 一番上の「…」→「Redeploy」",
-  },
-  {
-    id: "cloudrun", label: "Cloud Run",
-    steps: [
-      "Google Cloud コンソールで Cloud Run のサービスを開く",
-      "「新しいリビジョンの編集とデプロイ」→「変数とシークレット」",
-      "「変数を追加」で 名前 AGENTGUARD_KEY、値 に上の接続キーを貼って「デプロイ」",
-    ],
-    publish: "いつもの方法でデプロイし直す（例：gcloud run deploy サービス名 --source .）",
-  },
-  {
-    id: "other", label: "それ以外・自分のPC",
-    steps: [
-      "サイトのフォルダにある .env ファイルを開く（なければ新しく作る）",
-      "下の「.env に貼る1行」をコピーして貼り付け、保存",
-      ".env は GitHub などに公開しないでください",
-    ],
-    publish: "サーバーを再起動する（止めて、もう一度起動する）",
-  },
 ];
 
 const STEPS: { n: Step; label: string }[] = [
@@ -72,24 +42,10 @@ const STEPS: { n: Step; label: string }[] = [
 
 const ALIVE_MS = 15 * 60_000;
 
-// Region codes in the short form of Cloud Run URLs (service-hash-xx.a.run.app).
-const RUN_REGIONS: Record<string, string> = { an: "asia-northeast1", uc: "us-central1", ue: "us-east1", ew: "europe-west1" };
-
-/** The Cloud Run service and region, read from a run.app address (null for other addresses). */
-export function cloudRunService(host: string): { service: string; region: string } | null {
-  const long = host.match(/^(.+)-\d{6,}\.([a-z0-9-]+)\.run\.app$/); // service-PROJECTNUMBER.REGION.run.app
-  if (long) return { service: long[1], region: long[2] };
-  const short = host.match(/^(.+)-[a-z0-9]{10}-([a-z]{2})\.a\.run\.app$/);
-  if (short && RUN_REGIONS[short[2]]) return { service: short[1], region: RUN_REGIONS[short[2]] };
-  return null;
-}
-
 /** For Cloud Run, setting the key is one pasted line in Cloud Shell (it also redeploys the service). */
 function CloudRunShortcut({ host, connectionKey }: { host: string; connectionKey: string | null }) {
   const run = cloudRunService(host);
-  const service = run?.service ?? "サービス名";
-  const region = run?.region ?? "リージョン";
-  const command = `gcloud run services update ${service} --region ${region} --update-env-vars AGENTGUARD_KEY=${connectionKey ?? "（接続キー）"}`;
+  const command = cloudRunCommand(host, connectionKey);
   return (
     <div className="mt-2 rounded-xl border border-brand/30 bg-brand/5 p-3 text-xs">
       <p className="font-bold text-ink">いちばんかんたん：Cloud Shell に1行貼るだけ</p>
@@ -194,7 +150,7 @@ function HandoffBundle({ text }: { text: string }) {
       <p className="flex items-center gap-2 text-xs font-bold text-ink">
         <ClipboardList size={14} className="text-brand" /> 自分で設定しない場合
       </p>
-      <p className="mt-0.5 text-[11px] text-muted">サイトを作った人・管理している人に、この手順（キー・ファイル・やること入り）をそのまま渡してください。</p>
+      <p className="mt-0.5 text-[11px] text-muted">上の「設定セット（ZIP）」をそのまま渡すのがいちばん確実です。チャットなどで送りたいときは、同じ内容をテキストでコピーできます。</p>
       <button
         type="button"
         onClick={() => { navigator.clipboard?.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
@@ -313,6 +269,39 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
         <Badge tone="warn">つなぐ途中</Badge>
       </div>
 
+      {fw && (
+        <div className="rounded-2xl border-2 border-brand/40 bg-linear-to-br from-brand/8 to-white p-4">
+          <p className="flex items-center gap-2 text-sm font-bold text-ink">
+            <FolderDown size={17} className="text-brand" /> いちばんかんたん：設定セットをフォルダごとダウンロード
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            必要なファイル・接続キー・<b className="text-ink">「どこに何を入れるか」の手順書</b>を、1つのフォルダにまとめました。
+            ダウンロードして開き、<code className="font-mono">READ_ME_FIRST.html</code> を開いて、書いてある順番どおりに進めるだけです。
+          </p>
+          <pre className="mt-2 overflow-x-auto rounded-xl border border-line bg-white px-3 py-2 font-mono text-[11px] leading-relaxed text-ink">{[
+            "agentguard-setup/",
+            "├─ READ_ME_FIRST.html        ← 手順書（最初に開く）",
+            `├─ files_for_your_site/${install!.fileName}   ← サイトのフォルダに入れる`,
+            "└─ AGENTGUARD_KEY.txt        ← 接続キー（秘密。環境変数に入れる）",
+          ].join("\n")}</pre>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button onClick={() => downloadSetupKit({ kind: fw, host, siteUrl: site.url, siteHost: site.host, key: connectionKey,
+                                                      snippet: code, dashboardUrl: window.location.origin })}>
+              <Download size={15} /> 設定セットをダウンロード（ZIP）
+            </Button>
+            <span className="text-[11px] text-muted">
+              種類：{KINDS.find((k) => k.id === kind)!.label}・公開している場所：{hostSpec.label}（違うときは下のステップ1・2で選び直してからダウンロード）
+            </span>
+          </div>
+          {!connectionKey && (
+            <p className="mt-2 text-[11px] text-rose-700">
+              接続キーは発行したときにしか表示されないため、いまダウンロードするとキーは入りません。ステップ2の「キーをなくした・作り直す」で新しいキーを出してからダウンロードしてください。
+            </p>
+          )}
+          <p className="mt-2 text-[11px] text-muted">下の4ステップで、この画面を見ながら進めることもできます。</p>
+        </div>
+      )}
+
       <Progress current={step} done={(n) => n < step} onGo={(n) => { if (n <= step) go(n); }} />
 
       <div className="rounded-2xl border border-line p-4 sm:p-5">
@@ -372,10 +361,24 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
                 <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
                   {hostSpec.steps.map((s) => <li key={s}>{s}</li>)}
                 </ol>
-                {host === "other" && connectionKey && (
-                  <div className="mt-2">
-                    <p className="mb-1 text-[11px] font-semibold text-ink">.env に貼る1行（そのままコピーできます）</p>
-                    <CopyField value={`AGENTGUARD_KEY=${connectionKey}`} label=".env の1行" />
+                {host === "other" && (
+                  <div className="mt-2 rounded-xl border border-line bg-slate-50 p-3 text-xs">
+                    <p className="font-semibold text-ink">自分のPCで動かす場合</p>
+                    <p className="mt-1 text-muted">
+                      ファイル名は <code className="font-mono">{LOCAL_ENV[fw].file}</code>（サイトのフォルダに作る）。
+                      起動のしかた：{LOCAL_ENV[fw].start}。
+                    </p>
+                    {fw !== "next" && (
+                      <p className="mt-1 text-amber-800">
+                        Express・FastAPI は、ファイルを置くだけではキーを読み込みません。上の起動のしかたで起動してください。
+                      </p>
+                    )}
+                    {connectionKey && (
+                      <div className="mt-2">
+                        <p className="mb-1 text-[11px] font-semibold text-ink">{LOCAL_ENV[fw].file} に貼る1行（そのままコピーできます）</p>
+                        <CopyField value={`AGENTGUARD_KEY=${connectionKey}`} label={`${LOCAL_ENV[fw].file} の1行`} />
+                      </div>
+                    )}
                   </div>
                 )}
               </>
@@ -438,7 +441,7 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
           <>
             <p className="text-sm font-bold text-ink">ステップ4：公開し直して、つながるのを待つ</p>
             <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
-              <li>{hostSpec.publish}</li>
+              <li>{host === "other" ? `${hostSpec.publish}。${LOCAL_ENV[fw].start}` : hostSpec.publish}</li>
               <li>公開が終わったら、
                 <a href={site.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-brand hover:underline">
                   サイトを一度開く <ExternalLink size={11} />

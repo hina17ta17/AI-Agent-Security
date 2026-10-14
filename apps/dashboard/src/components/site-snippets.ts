@@ -296,5 +296,5 @@ export const INSTALL: Record<ServerFramework, {
 export const KEY_PLACES: { name: string; how: string }[] = [
   { name: "Vercel", how: "プロジェクトの Settings → Environment Variables で AGENTGUARD_KEY を追加 → Deployments から Redeploy" },
   { name: "Cloud Run", how: "サービスの「新しいリビジョンの編集とデプロイ」→「変数とシークレット」で AGENTGUARD_KEY を追加" },
-  { name: "自分のPC・その他", how: ".env ファイルに AGENTGUARD_KEY=… と書く（.env は公開リポジトリに入れない）" },
+  { name: "自分のPC・その他", how: "Next.js は .env.local に AGENTGUARD_KEY=… と書くだけ。Express は .env に書いて node --env-file=.env server.js で起動、FastAPI は .env に書いて uvicorn main:app --env-file .env で起動（どちらもファイルを置くだけでは読み込まれません）。このファイルは公開リポジトリに入れない" },
 ];
