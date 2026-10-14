@@ -43,7 +43,8 @@ function Frame({ tone, icon, title, children, action }: {
         <div className="text-base font-black text-ink sm:text-lg">{title}</div>
         <div className="mt-0.5 text-xs text-muted sm:text-sm">{children}</div>
       </div>
-      {action}
+      {/* On phones the link gets its own line, so the text keeps the width. */}
+      {action && <div className="w-full pl-16 sm:w-auto sm:pl-0">{action}</div>}
     </section>
   );
 }
