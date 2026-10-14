@@ -29,6 +29,8 @@ export type Tenant = {
   ingestKeyHint?: string;
   /** When the registered site last reported a request (updated at most once a minute). */
   siteLastReportAt?: Timestamp;
+  /** Last 4 characters of the key that sent that report (compare with ingestKeyHint). */
+  siteReportKeyHint?: string;
 };
 
 export type ProtectedSite = {

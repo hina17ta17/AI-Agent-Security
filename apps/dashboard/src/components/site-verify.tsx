@@ -294,9 +294,11 @@ function DnsAdd({ site }: { site: ProtectedSite }) {
   );
 }
 
-export function VerifyWizard({ site, onVerified, connectionKey, keyHint, onRotate }: {
+export function VerifyWizard({ site, onVerified, onRegistered, connectionKey, keyHint, onRotate }: {
   site: ProtectedSite;
   onVerified: (key: string | null, mode: "connected" | "private" | "public" | "dns") => void;
+  /** A URL fix on another domain issues a new key, which must be shown (it is shown only once). */
+  onRegistered: (key: string | null) => void;
   connectionKey: string | null; keyHint?: string; onRotate: () => Promise<void>;
 }) {
   const { api } = useSession();
@@ -329,7 +331,7 @@ export function VerifyWizard({ site, onVerified, connectionKey, keyHint, onRotat
         save(site.url, { ...state, step: { file: 0, dns: 0 } });
         onVerified(r.connectionKey ?? null, r.mode ?? "public");
       }
-      setResult(r.verified ? { ok: true, text: "所有を確認しました。" } : { ok: false, text: r.message ?? "確認できませんでした。", reason: r.reason });
+      setResult(r.verified ? { ok: true, text: "あなたのサイトだと確かめました。" } : { ok: false, text: r.message ?? "確認できませんでした。", reason: r.reason });
     } catch (e) {
       setResult({ ok: false, text: e instanceof Error ? e.message : "確認できませんでした" });
     } finally {
@@ -346,7 +348,8 @@ export function VerifyWizard({ site, onVerified, connectionKey, keyHint, onRotat
     setBusy("edit");
     setEditError(null);
     try {
-      await api("/api/site", { body: { action: "register", url: newUrl } });
+      const r = await api<{ connectionKey: string | null }>("/api/site", { body: { action: "register", url: newUrl.trim().replace(/[?#].*$/, "") } });
+      onRegistered(r.connectionKey);
       setEditing(false);
       setResult(null);
     } catch (e) {
@@ -369,7 +372,7 @@ export function VerifyWizard({ site, onVerified, connectionKey, keyHint, onRotat
       </div>
       {editing && (
         <div className="space-y-2 rounded-2xl border border-line p-3">
-          <p className="text-xs text-muted">同じドメインのまま直す場合は、合言葉は変わりません（置いたファイルはそのまま使えます）。</p>
+          <p className="text-xs text-muted">同じドメインのまま直す場合は、合言葉も接続キーも変わりません（置いたファイルはそのまま使えます）。別のドメインにすると、新しい接続キーになります（この画面に表示されます）。</p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <input type="url" value={newUrl} onChange={(e) => setNewUrl(e.target.value)}
                    className="h-10 flex-1 rounded-xl border border-line bg-white px-3 font-mono text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />

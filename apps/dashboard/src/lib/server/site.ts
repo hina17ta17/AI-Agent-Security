@@ -170,7 +170,7 @@ function getOnce(url: string): Promise<{ status: number; location: string | null
 /** Why a check failed, so the owner knows what to fix. */
 export type CheckResult =
   | { ok: true; mode?: "connected" | "private" | "public" }
-  | { ok: false; reason: "unreachable" | "not_found" | "redirect" | "mismatch" | "no_record";
+  | { ok: false; reason: "unreachable" | "not_found" | "redirect" | "mismatch" | "key_mismatch" | "no_record";
       status?: number; location?: string };
 
 /** The answer a site that keeps the token private gives to a challenge. */
@@ -216,7 +216,9 @@ export async function checkFile(host: string, path: string, token: string,
     const answer = res.text.trim();
     if (verifySecrets.some((v) => sameText(answer, connectedAnswer(v, challenge)))) return { ok: true, mode: "connected" };
     if (sameText(answer, challengeAnswer(token, challenge))) return { ok: true, mode: "private" };
-    return res.text.includes(token) ? { ok: true, mode: "public" } : { ok: false, reason: "mismatch" };
+    if (res.text.includes(token)) return { ok: true, mode: "public" };
+    // An HMAC-shaped answer means AgentGuard's code is running on the site, with another key.
+    return { ok: false, reason: /^[0-9a-f]{64}$/.test(answer) ? "key_mismatch" : "mismatch" };
   } catch {
     return { ok: false, reason: "unreachable" };
   }

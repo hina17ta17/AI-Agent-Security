@@ -11,6 +11,7 @@ import { LiveFeed } from "@/components/live-feed";
 import { Metrics } from "@/components/metrics";
 import { ReportCard } from "@/components/report";
 import { SelfGuard } from "@/components/self-guard";
+import { SiteGuardBanner } from "@/components/site-guard-banner";
 import { StatusHero } from "@/components/status-hero";
 import { moodsFor, TeamPanel } from "@/components/team-panel";
 import { WaveCard } from "@/components/wave-card";
@@ -64,6 +65,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-5">
       <ApprovalBanner approvals={approvals} />
+      <SiteGuardBanner />
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="min-w-0 space-y-5 lg:col-span-2">
           <StatusHero tenant={tenant} incident={incident} defendedAt={defendedAt} />

@@ -53,13 +53,21 @@ class Store:
         self._hits: dict[tuple[str, str], int] = {}  # requests from blocked IPs, not yet written
         self._hits_flushed: dict[tuple[str, str], float] = {}
 
-    async def note_site_report(self, tenant_id: str) -> None:
-        """Let the dashboard show "your site is connected": record the last report, at most once a minute."""
-        found, _ = self._reports.get(tenant_id)
+    async def note_site_report(self, tenant_id: str, key_hint: str | None = None) -> None:
+        """Let the dashboard show "your site is connected": record the last report, at most once a minute.
+
+        With the reporting key's last 4 characters, so the dashboard can tell the current key from an
+        old one that still works for a moment (keys are cached here for up to a minute). Throttled per
+        key, so the first report of a new key is written at once.
+        """
+        found, _ = self._reports.get(f"{tenant_id}|{key_hint or ''}")
         if found:
             return
-        self._reports.put(tenant_id, True, ttl=60)
-        await self.db.collection("tenants").document(tenant_id).update({"siteLastReportAt": firestore.SERVER_TIMESTAMP})
+        self._reports.put(f"{tenant_id}|{key_hint or ''}", True, ttl=60)
+        fields: dict = {"siteLastReportAt": firestore.SERVER_TIMESTAMP}
+        if key_hint:
+            fields["siteReportKeyHint"] = key_hint
+        await self.db.collection("tenants").document(tenant_id).update(fields)
 
     async def note_self_report(self) -> None:
         """Count AgentGuard's own inspected requests for the public "AgentGuard protects itself" card.

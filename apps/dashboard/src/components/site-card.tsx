@@ -135,6 +135,12 @@ export function SiteCard() {
     if (key) setConnectionKey(key);
     setVerifiedMode(mode);
   };
+  // Registering (or fixing the URL) returns a new key, or null when the current key was kept: then
+  // the key already on screen is still the right one and must stay.
+  const onRegistered = (key: string | null) => {
+    if (key) setConnectionKey(key);
+    setVerifiedMode(null);
+  };
 
   async function rotate() {
     const r = await api<{ connectionKey: string }>("/api/site", { body: { action: "rotate" } });
@@ -147,7 +153,7 @@ export function SiteCard() {
                   sub="あなたのサイトを登録して守ります（1つまで）" />
       <div className="p-5">
         {!site ? (
-          <RegisterForm onRegistered={setConnectionKey} />
+          <RegisterForm onRegistered={onRegistered} />
         ) : site.status === "pending" && !otherMethods ? (
           <ConnectWizard site={site} connectionKey={connectionKey} keyHint={tenant?.ingestKeyHint} onRotate={rotate}
                          onVerified={onVerified} onOtherMethods={() => setOtherMethods(true)} />
@@ -157,7 +163,7 @@ export function SiteCard() {
               ← かんたんな4ステップに戻る
             </button>
             <VerifyWizard site={site} connectionKey={connectionKey} keyHint={tenant?.ingestKeyHint} onRotate={rotate}
-                          onVerified={onVerified} />
+                          onVerified={onVerified} onRegistered={onRegistered} />
           </div>
         ) : (
           <VerifiedPanel site={site} keyHint={tenant?.ingestKeyHint} connectionKey={connectionKey}

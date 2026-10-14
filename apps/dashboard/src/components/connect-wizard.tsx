@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/lib/auth-context";
 import { toDate } from "@/lib/format";
 import { useNow, useTenant } from "@/lib/hooks";
+import { siteReport } from "@/lib/site-link";
 import type { ProtectedSite } from "@/lib/types";
 
 import { CopyField } from "./copy-field";
@@ -43,8 +44,6 @@ const STEPS: { n: Step; label: string }[] = [
   { n: 3, label: "キー" },
   { n: 4, label: "更新・確認" },
 ];
-
-const ALIVE_MS = 15 * 60_000;
 
 /**
  * For Cloud Run built from GitHub (no saved-key folder on the server), putting the key in is one
@@ -101,14 +100,21 @@ function download(name: string, content: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-type Saved = { step: Step; kind: Kind; host: Host };
+/** `reg`: the registration the progress belongs to (registering again issues a new key). */
+type Saved = { step: Step; kind: Kind; host: Host; reg?: number };
 const storageKey = (siteUrl: string) => `agentguard.connect.${siteUrl}`;
+const registrationOf = (site: ProtectedSite) => toDate(site.registeredAt)?.getTime() ?? 0;
 
 function load(site: ProtectedSite): Saved {
-  const fallback: Saved = { step: 1, kind: guessKind(site.host), host: guessHost(site.host) };
+  const fallback: Saved = { step: 1, kind: guessKind(site.host), host: guessHost(site.host), reg: registrationOf(site) };
   try {
     const raw = window.localStorage.getItem(storageKey(site.url));
-    return raw ? { ...fallback, ...(JSON.parse(raw) as Partial<Saved>) } : fallback;
+    if (!raw) return fallback;
+    const saved = JSON.parse(raw) as Partial<Saved>;
+    // A new registration starts again at step 1 (its key is new); the kind and hosting are kept.
+    return saved.reg === fallback.reg
+      ? { ...fallback, ...saved }
+      : { ...fallback, kind: saved.kind ?? fallback.kind, host: saved.host ?? fallback.host };
   } catch {
     return fallback; // private mode or blocked storage: start at step 1
   }
@@ -259,10 +265,11 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
   const [checking, setChecking] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const tried = useRef(false);
+  const tried = useRef(0); // the report already checked: each newer report is checked once
 
-  const last = toDate(tenant?.siteLastReportAt);
-  const alive = last !== null && now - last.getTime() < ALIVE_MS;
+  // Only a report sent with the current key counts (an old key works for a moment after a new one).
+  const { last, alive, oldKey } = siteReport(tenant, now);
+  const lastMs = last?.getTime() ?? 0;
   const { kind, host } = state;
   // A report from the site means the key and the file are already in place: show the last step.
   const step: Step = alive && kind !== "static" ? 4 : state.step;
@@ -288,12 +295,13 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
     }
   }, [api, onVerified]);
 
-  // The first report from the site means the code and key are in place: check ownership by itself.
+  // A report from the site means the code and key are in place: check ownership by itself. A later
+  // report is checked again (e.g. a local test first, then the published site), at most once a minute.
   useEffect(() => {
-    if (!alive || tried.current || kind === "static") return;
-    const t = setTimeout(() => { tried.current = true; void verify(); }, 0);
+    if (!alive || kind === "static" || lastMs <= tried.current) return;
+    const t = setTimeout(() => { tried.current = lastMs; void verify(); }, 0);
     return () => clearTimeout(t);
-  }, [alive, kind, verify]);
+  }, [alive, kind, lastMs, verify]);
 
   async function remove() {
     if (!window.confirm("このサイトの登録をやめますか？")) return;
@@ -514,8 +522,17 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
               </li>
               <li>この画面を開いたまま待ちます。自動で「つながりました」に変わります。</li>
             </ol>
-            <div className={cx("mt-4 rounded-xl p-4 text-sm", alive ? "bg-safe/10 text-emerald-900" : "bg-slate-100 text-muted")} role="status">
-              {!alive ? (
+            <div className={cx("mt-4 rounded-xl p-4 text-sm",
+              alive ? "bg-safe/10 text-emerald-900" : oldKey ? "bg-warn/10 text-amber-900" : "bg-slate-100 text-muted")} role="status">
+              {oldKey ? (
+                <div>
+                  <p className="font-bold">サイトから合図は届きましたが、前の接続キーのままです</p>
+                  <p className="mt-0.5 text-xs">
+                    前のキーはもう使えません。ステップ2のフォルダをダウンロードしなおして <code className="font-mono">{SAVED_DIR}</code> を入れかえるか、
+                    秘密の設定のキーを新しいものにして、サイトを更新してください。
+                  </p>
+                </div>
+              ) : !alive ? (
                 <p className="flex items-center gap-2 font-semibold text-ink">
                   <Loader2 size={16} className="shrink-0 animate-spin" /> サイトからの合図を待っています…
                 </p>

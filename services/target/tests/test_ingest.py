@@ -23,6 +23,7 @@ class FakeStore:
         self.state = TenantState(tenant_id=TENANT)
         self.hits: list[str] = []
         self.reports: list[str] = []
+        self.report_keys: list[str | None] = []
         self.self_reports = 0
 
     async def tenant_for_ingest_key(self, key_hash):
@@ -39,8 +40,9 @@ class FakeStore:
     async def count_blocked_hit(self, tenant_id, ip):
         self.hits.append(ip)
 
-    async def note_site_report(self, tenant_id):
+    async def note_site_report(self, tenant_id, key_hint=None):
         self.reports.append(tenant_id)
+        self.report_keys.append(key_hint)
 
     async def note_self_report(self):
         self.self_reports += 1
@@ -207,6 +209,16 @@ def test_a_real_site_report_marks_the_connection_alive(env):
     client, store, _ = env
     client.post("/ingest", json={"path": "/", "ip": "198.51.100.9"}, headers=key_auth())
     assert store.reports == [TENANT]
+    # Which key reported (last 4 characters, as the dashboard shows them), so a report from a key that
+    # was just replaced is not taken for the new key working.
+    assert store.report_keys == [INGEST_KEY[-4:]]
+
+
+def test_a_site_key_cannot_count_as_agentguard_itself(env):
+    client, store, _ = env
+    with_self_tenant("self-tenant")
+    client.post("/ingest", json={"path": "/", "agentguardSelf": True}, headers=key_auth())
+    assert store.self_reports == 0 and store.reports == [TENANT]
 
 
 def test_simulated_reports_do_not_count_as_a_connection(env):

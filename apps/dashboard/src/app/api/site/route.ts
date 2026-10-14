@@ -56,16 +56,21 @@ async function releaseClaim(batch: FirebaseFirestore.WriteBatch, uid: string, si
 }
 
 /** What to fix, in the owner's words. */
-function failureMessage(r: Exclude<CheckResult, { ok: true }>, url: string): string {
+function failureMessage(r: Exclude<CheckResult, { ok: true }>, url: string, method: "file" | "dns"): string {
+  if (method === "dns" && r.reason === "mismatch") {
+    return "DNS の記録は見つかりましたが、合言葉が一致しません。画面に出ている最新の合言葉になっているか確認してください。";
+  }
   switch (r.reason) {
     case "unreachable":
       return "サイトに接続できませんでした。URLが正しいか、サイトが公開されているかを確認してください。";
     case "not_found":
-      return `ファイルが見つかりませんでした（${url}${verifyFilePath} の応答：${r.status}）。置き場所とファイル名、サイトを公開し直したかを確認してください。`;
+      return `確認用のページが見つかりませんでした（${url}${verifyFilePath} の応答：${r.status}）。つなぐファイルの置き場所と、置いたあとにサイトを更新したかを確認してください（合言葉のファイルを使う方法なら、ファイルの置き場所と名前も）。`;
     case "redirect":
       return `このURLは別の場所へ転送（リダイレクト）されています${r.location ? `（転送先：${r.location}）` : ""}。転送先のURLで登録し直してください。`;
+    case "key_mismatch":
+      return "サイトの AgentGuard は動いていますが、入っている接続キーが、いまのキーと違います（前のキーのままです）。フォルダをダウンロードしなおして .agentguard を入れかえるか、秘密の設定 AGENTGUARD_KEY を新しいキーにして、サイトを更新してください。";
     case "mismatch":
-      return "見つかりましたが、合言葉が一致しません。画面に表示されている最新の合言葉を貼り直してください。";
+      return "確認用のページは開けましたが、AgentGuard の答えがありませんでした。つなぐファイルが動いているか（置き場所・書き足した行）を確認してください。合言葉のファイルを使う方法なら、画面に出ている最新の合言葉になっているかも確認してください。";
     case "no_record":
       return "DNSの記録がまだ見つかりません。追加した直後は、反映まで数分〜数時間かかることがあります。";
   }
@@ -115,8 +120,9 @@ export async function POST(request: Request) {
         batch.set(keyRef(connectionKey), keyData(uid, connectionKey, host, path));
       }
       // update() replaces the whole site map, so no field of the previous site lingers.
+      // Reports so far came from the previous registration (and maybe its old key): start over.
       batch.update(tenantRef(uid), {
-        site, siteLastReportAt: FieldValue.delete(),
+        site, siteLastReportAt: FieldValue.delete(), siteReportKeyHint: FieldValue.delete(),
         ...(connectionKey ? { ingestKeyHint: connectionKey.slice(-4) } : {}),
       });
       await batch.commit();
@@ -156,7 +162,7 @@ export async function POST(request: Request) {
         ? await checkDns(site.host, site.token)
         : await checkFile(site.host, site.path ?? "", site.token, verifySecrets);
       if (!result.ok) {
-        return json({ verified: false, method, reason: result.reason, message: failureMessage(result, site.url ?? "") });
+        return json({ verified: false, method, reason: result.reason, message: failureMessage(result, site.url ?? "", method) });
       }
 
       // One site (host + base path) can be claimed by only one account.
@@ -188,7 +194,10 @@ export async function POST(request: Request) {
       const batch = db().batch();
       if (site?.host) await releaseClaim(batch, uid, site);
       keys.docs.forEach((d) => batch.delete(d.ref)); // the site's ingest key stops working
-      batch.set(tenantRef(uid), { site: FieldValue.delete(), ingestKeyHint: FieldValue.delete() }, { merge: true });
+      batch.set(tenantRef(uid), {
+        site: FieldValue.delete(), ingestKeyHint: FieldValue.delete(),
+        siteLastReportAt: FieldValue.delete(), siteReportKeyHint: FieldValue.delete(),
+      }, { merge: true });
       await batch.commit();
       await audit(uid, "remove_site", { host: site?.host ?? null }, { status: "removed" });
       return json({ ok: true });

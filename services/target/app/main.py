@@ -81,29 +81,34 @@ def _in_allowlist(ip: str, allowlist: list[str]) -> bool:
 
 # ----------------------------------------------------------------------------- ingest (external sites)
 
-async def _authenticate_ingest(request: Request, req: ingest.IngestRequest) -> tuple[str | None, bool]:
-    """Returns (tenant_id, simulated). None tenant_id means the caller is not authorized."""
-    token = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
+def _bearer(request: Request) -> str:
+    return (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
+
+
+async def _authenticate_ingest(request: Request, req: ingest.IngestRequest) -> tuple[str | None, str]:
+    """Returns (tenant_id, how): "key" (a site's ingest key), "self" (AgentGuard's own dashboard) or
+    "sim" (the attack simulator). None tenant_id means the caller is not authorized."""
+    token = _bearer(request)
     if not token:
-        return None, False
+        return None, ""
     store: Store = app.state.store
     tenant_id, _host = await store.tenant_for_ingest_key(ingest.hash_key(token))
     if tenant_id:
-        return tenant_id, False  # a real site's ingest key
+        return tenant_id, "key"  # a real site's ingest key
     settings = app.state.settings
     audience = settings.sim_audience or f"https://{request.headers.get('host', '')}"
     # AgentGuard's own dashboard reports its real visitors; the tenant comes from config, not the request.
     if req.agentguardSelf:
         if settings.self_tenant_id and await asyncio.to_thread(app.state.verifier.verify, token, audience):
-            return settings.self_tenant_id, False
+            return settings.self_tenant_id, "self"
         log("WARNING", "rejected self-protection ingest (disabled or token not from the dashboard)")
-        return None, False
+        return None, ""
     # The attack simulator reports synthetic events with the dashboard's service-account token.
     if req.simulated and req.tenantId:
         if await asyncio.to_thread(app.state.verifier.verify, token, audience):
-            return req.tenantId, True
+            return req.tenantId, "sim"
         log("WARNING", "rejected simulated ingest (token not from the dashboard)")
-    return None, False
+    return None, ""
 
 
 @app.post("/ingest")
@@ -119,14 +124,19 @@ async def ingest_request(request: Request):
     except ValidationError:
         return JSONResponse({"error": "invalid request"}, status_code=400)
 
-    tenant_id, simulated = await _authenticate_ingest(request, req)
+    tenant_id, how = await _authenticate_ingest(request, req)
     if not tenant_id:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    simulated = how == "sim"
     if not simulated:
         try:  # a real report: the dashboard shows the connection as alive
-            await store.note_site_report(tenant_id)
-            if req.agentguardSelf:
-                await store.note_self_report()
+            if how == "key":
+                # Which key reported (its last 4 characters, as the dashboard shows them): a report from
+                # a just-replaced key must not look like the new key working.
+                await store.note_site_report(tenant_id, key_hint=_bearer(request)[-4:])
+            else:
+                await store.note_site_report(tenant_id)
+                await store.note_self_report()  # only AgentGuard's own dashboard counts here
         except Exception as exc:
             log("WARNING", "could not record the site report time", error=repr(exc)[:200])
     ip, simulated = ingest.resolve_ip(req, simulated)
