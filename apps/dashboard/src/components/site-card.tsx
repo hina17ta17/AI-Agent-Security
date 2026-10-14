@@ -44,7 +44,7 @@ function RegisterForm({ onRegistered }: { onRegistered: (key: string | null) => 
         ブラウザのアドレス欄に出ている、サイトのトップページのURLをそのまま貼れば大丈夫です。
       </p>
       <ol className="grid grid-cols-2 gap-1.5 text-[11px] text-muted sm:grid-cols-4">
-        {["① 種類を選ぶ", "② キーを入れる", "③ ファイルを置く", "④ 公開して待つ"].map((t) => (
+        {["① 種類を選ぶ", "② フォルダを置く", "③ キー（Vercel だけ）", "④ 更新して待つ"].map((t) => (
           <li key={t} className="rounded-lg bg-slate-50 px-2 py-1.5 text-center font-semibold">{t}</li>
         ))}
       </ol>

@@ -12,13 +12,15 @@ import type { ProtectedSite } from "@/lib/types";
 
 import { CopyField } from "./copy-field";
 import { KeyBox } from "./site-connect";
-import { cloudRunCommand, cloudRunService, downloadSetupKit, type Host, HOSTS, LOCAL_ENV, publishGuide } from "./setup-kit";
-import { INSTALL, integrationSnippet, type ServerFramework } from "./site-snippets";
+import { cloudRunCommand, cloudRunService, deployTool, downloadSetupKit, type Host, HOSTS, publishGuide } from "./setup-kit";
+import { INSTALL, integrationSnippet, SAVED_DIR, type ServerFramework } from "./site-snippets";
 import { Badge, Button, cx } from "./ui";
 
 /**
- * Connecting a site, one step at a time: (1) what kind of site, (2) put the key in, (3) put one
- * file in, (4) update the site and wait. Only the current step is on screen, with a progress bar.
+ * Connecting a site, one step at a time: (1) what kind of site and where it is published,
+ * (2) download the setup folder and copy the program and the saved-key folder into the site,
+ * (3) the key: nothing to do, except on Vercel (built from GitHub, which never gets the folder),
+ * (4) update the site and wait. Only the current step is on screen, with a progress bar.
  * The first report from the site moves straight to the last step and checks ownership by itself.
  * Progress is remembered per site in this browser, so a reload does not start over.
  *
@@ -37,20 +39,23 @@ const KINDS: { id: Kind; label: string; sub: string }[] = [
 
 const STEPS: { n: Step; label: string }[] = [
   { n: 1, label: "種類" },
-  { n: 2, label: "キー" },
-  { n: 3, label: "ファイル" },
+  { n: 2, label: "フォルダ" },
+  { n: 3, label: "キー" },
   { n: 4, label: "更新・確認" },
 ];
 
 const ALIVE_MS = 15 * 60_000;
 
-/** For Cloud Run, putting the key in is one pasted line in Cloud Shell (it also updates the site). */
+/**
+ * For Cloud Run built from GitHub (no saved-key folder on the server), putting the key in is one
+ * pasted line in Cloud Shell (it also updates the site).
+ */
 function CloudRunShortcut({ host, connectionKey }: { host: string; connectionKey: string | null }) {
   const run = cloudRunService(host);
   const [, step2] = HOSTS.find((h) => h.id === "cloudrun")!.keySteps;
   return (
     <div className="mt-2 rounded-xl border border-brand/30 bg-brand/5 p-3 text-xs">
-      <p className="font-bold text-ink">いちばんかんたん：Cloud Shell に1行貼るだけ</p>
+      <p className="font-bold text-ink">Cloud Shell に1行貼るだけ</p>
       <ol className="mt-1 list-decimal space-y-1 pl-5 text-muted">
         <li>
           <a href="https://console.cloud.google.com/run?cloudshell=true" target="_blank" rel="noreferrer"
@@ -153,7 +158,8 @@ function HandoffBundle({ text }: { text: string }) {
         <ClipboardList size={14} className="text-brand" /> 自分でやらないとき
       </p>
       <p className="mt-0.5 text-[11px] text-muted">
-        上の「設定セット（ZIP）」を、サイトを作った人にそのまま渡すのがいちばん確実です。チャットで送りたいときは、同じ内容を文章でコピーできます。
+        ステップ2のフォルダ（ZIP）を、サイトを作った人にそのまま渡すのがいちばん確実です（キーも入っているので、キーを入れる手順がいりません）。
+        チャットで送りたいときは、同じ内容を文章でコピーできます（この場合は、キーを秘密の設定に入れてもらいます）。
       </p>
       <button
         type="button"
@@ -307,40 +313,6 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
         <Badge tone="warn">つなぐ途中</Badge>
       </div>
 
-      {fw && (
-        <div className="rounded-2xl border-2 border-brand/40 bg-linear-to-br from-brand/8 to-white p-4">
-          <p className="flex items-center gap-2 text-sm font-bold text-ink">
-            <FolderDown size={17} className="text-brand" /> いちばんかんたん：必要なものをフォルダごとダウンロード
-          </p>
-          <p className="mt-1 text-xs text-muted">
-            つなぐのに必要なファイルと接続キー、それに<b className="text-ink">「どこに何を入れるか」を書いた説明</b>を、1つのフォルダにまとめました。
-            ダウンロードしたら、中の <code className="font-mono">READ_ME_FIRST.html</code> を開いて、上から順番にやるだけです。
-          </p>
-          <pre className={cx(pre, "mt-2 bg-white")}>{[
-            "agentguard-setup/",
-            "├─ READ_ME_FIRST.html        ← やり方の説明（最初に開く）",
-            `├─ files_for_your_site/${install!.fileName}   ← サイトのフォルダに入れる`,
-            "└─ AGENTGUARD_KEY.txt        ← 接続キー（合言葉。秘密の設定に入れる）",
-          ].join("\n")}</pre>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button onClick={() => downloadSetupKit({ kind: fw, host, siteUrl: site.url, siteHost: site.host, key: connectionKey,
-                                                      snippet: code, dashboardUrl: window.location.origin })}>
-              <Download size={15} /> フォルダをダウンロード（ZIP）
-            </Button>
-            <span className="text-[11px] text-muted">
-              いまの選択：{KINDS.find((k) => k.id === kind)!.label}・{hostSpec.label}（ちがうときは、下のステップ1と2で選びなおしてからダウンロードしてください）
-            </span>
-          </div>
-          {!connectionKey && (
-            <p className="mt-2 text-[11px] text-rose-700">
-              接続キーは作ったときに1回しか見られないので、いまダウンロードするとキーが入りません。
-              ステップ2の「キーをなくした・作り直す」で新しいキーを出してから、ダウンロードしてください。
-            </p>
-          )}
-          <p className="mt-2 text-[11px] text-muted">この画面を見ながら、下の4つのステップで進めることもできます。</p>
-        </div>
-      )}
-
       <Progress current={step} done={(n) => n < step} onGo={(n) => { if (n <= step) go(n); }} />
 
       <div className="rounded-2xl border border-line p-4 sm:p-5">
@@ -373,51 +345,132 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
                 </button>
               </div>
             ) : (
-              <Nav onNext={() => go(2)} />
+              <>
+                <p className="mt-4 text-sm font-bold text-ink">サイトはどこで公開していますか？</p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {HOSTS.map((h) => (
+                    <button key={h.id} type="button" onClick={() => update({ host: h.id })}
+                            className={cx("rounded-full border px-3 py-1 text-xs font-semibold",
+                              host === h.id ? "border-brand bg-brand/10 text-brand" : "border-line bg-white text-muted hover:border-brand/40")}>
+                      {h.label}
+                    </button>
+                  ))}
+                </div>
+                <Nav onNext={() => go(2)} />
+              </>
             )}
           </>
         )}
 
-        {step === 2 && fw && (
+        {step === 2 && fw && install && (
           <>
-            <p className="text-sm font-bold text-ink">ステップ2：接続キーを、サイトの秘密の設定に入れる</p>
+            <p className="text-sm font-bold text-ink">ステップ2：フォルダをダウンロードして、サイトのフォルダに入れる</p>
             <p className="mt-1 text-xs text-muted">
-              接続キーは、あなたのサイトと AgentGuard をつなぐ合言葉です。サイトのファイルの中には書かずに、
-              公開しているところの「秘密の設定（環境変数）」に入れます。
+              つなぐためのプログラムと、<b className="text-ink">接続キー（合言葉）を保存したフォルダ</b>、それに「どこに何を入れるか」を書いた説明を、
+              1つのフォルダ（ZIP）にまとめました。キーは最初から保存してあるので、自分で書く必要はありません。
             </p>
-            <div className="mt-3"><KeyBox connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} /></div>
-            <p className="mt-4 text-xs font-bold text-ink">サイトはどこで公開していますか？</p>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {HOSTS.map((h) => (
-                <button key={h.id} type="button" onClick={() => update({ host: h.id })}
-                        className={cx("rounded-full border px-3 py-1 text-xs font-semibold",
-                          host === h.id ? "border-brand bg-brand/10 text-brand" : "border-line bg-white text-muted hover:border-brand/40")}>
-                  {h.label}
-                </button>
-              ))}
+            {!connectionKey && (
+              <div className="mt-3 space-y-1.5">
+                <KeyBox connectionKey={null} keyHint={keyHint} onRotate={onRotate} />
+                <p className="text-[11px] text-rose-700">
+                  キーは、作ったときにしかフォルダに入れられません。先に「キーをなくした・作り直す」を押して、新しいキーを作ってください。
+                </p>
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button disabled={!connectionKey}
+                      onClick={() => downloadSetupKit({ kind: fw, host, siteUrl: site.url, siteHost: site.host, key: connectionKey,
+                                                        snippet: code, dashboardUrl: window.location.origin })}>
+                <FolderDown size={15} /> フォルダをダウンロード（ZIP）
+              </Button>
+              <span className="text-[11px] text-muted">
+                {KINDS.find((k) => k.id === kind)!.label}・{hostSpec.label} 用（ちがうときは、ステップ1で選びなおしてください）
+              </span>
             </div>
-            {host === "cloudrun" ? (
-              <CloudRunShortcut host={site.host} connectionKey={connectionKey} />
-            ) : (
+            <p className="mt-4 text-xs font-bold text-ink">ダウンロードしたフォルダの中身</p>
+            <pre className={pre}>{[
+              "agentguard-setup/",
+              "├─ READ_ME_FIRST.html      ← やり方の説明（最初に開く）",
+              "├─ files_for_your_site/    ← この中の2つを、サイトのフォルダに入れる",
+              `│  ├─ ${install.fileName.padEnd(18)}← プログラム`,
+              `│  └─ ${(SAVED_DIR + "/").padEnd(18)}← 接続キーを保存したフォルダ`,
+              ...(host === "vercel" ? ["└─ for_vercel_settings.txt ← Vercel の設定に貼るキー（ステップ3）"] : []),
+            ].join("\n")}</pre>
+            <p className="mt-4 text-xs font-bold text-ink">
+              <code className="font-mono">files_for_your_site</code> の中の2つを、サイトのフォルダにコピーします（入れたあとの形）
+            </p>
+            <pre className={pre}>{install.tree}</pre>
+            <p className="mt-1 text-[11px] text-muted">
+              「サイトのフォルダ」とは、<code className="font-mono">{fw === "fastapi" ? "main.py" : "package.json"}</code> が入っているフォルダのことです。
+              Mac では「.」ではじまるフォルダは、ふつうは見えません（Finder で Command ＋ Shift ＋ . を押すと見えます）。
+            </p>
+            {fw === "next" && (
+              <p className="mt-1 text-[11px] text-muted">
+                <code className="font-mono">src</code> フォルダを使っているときは、{install.fileName} だけを src の中に移します。
+                Next.js のバージョンが15より前のときは、ファイルの名前を <code className="font-mono">middleware.ts</code> に変えてください。
+                すでに同じ名前のファイルがあるときは、上書きしないで、サイトを作った人に相談してください。
+              </p>
+            )}
+            {install.addLines && (
               <>
-                <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
+                <p className="mt-4 text-xs font-bold text-ink">そのあと、1〜2行だけ書き足す（{install.addWhere}）</p>
+                <div className="mt-1"><CopyField value={install.addLines} label="書き足す行" /></div>
+                <p className="mt-2 text-[11px] font-semibold text-muted">書き足したあとは、たとえばこんな感じです</p>
+                <pre className={pre}>{install.context}</pre>
+              </>
+            )}
+            <div className="mt-3 rounded-xl bg-safe/10 px-3 py-2 text-[11px] text-emerald-900">
+              <b>公開する（デプロイする）とき、動くプログラムは {install.fileName} です。</b>
+              {SAVED_DIR} フォルダは、プログラムがキーを読むためのもので、GitHub には送られず、サイトを見る人にも見えません。
+              {" "}{deployTool(host, fw)}
+            </div>
+            <details className="mt-3 text-xs">
+              <summary className="cursor-pointer font-semibold text-brand">フォルダを使わないとき：プログラムだけをダウンロードする</summary>
+              <p className="mt-2 text-muted">この場合は、キーを自分で、サイトの秘密の設定（環境変数）に入れる必要があります（ステップ3で案内します）。</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button variant="ghost" size="sm" onClick={() => download(install.fileName, code)}>
+                  <Download size={14} /> {install.fileName} だけをダウンロード
+                </Button>
+              </div>
+              <div className="mt-2"><CopyField value={code} label={`${install.fileName} の中身`} /></div>
+            </details>
+            <Nav onBack={() => go(1)} onNext={() => go(3)} nextLabel="フォルダを入れた" />
+          </>
+        )}
+
+        {step === 3 && fw && (
+          <>
+            {hostSpec.needsKey ? (
+              <>
+                <p className="text-sm font-bold text-ink">ステップ3：Vercel の設定にも、キーを入れる</p>
+                <p className="mt-1 text-xs text-muted">{hostSpec.keyIntro}</p>
+                <div className="mt-3"><KeyBox connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} /></div>
+                <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs text-muted">
                   {hostSpec.keySteps.map((s) => <li key={s}>{s}</li>)}
                 </ol>
-                {host === "other" && (
-                  <div className="mt-2 rounded-xl border border-line bg-slate-50 p-3 text-xs">
-                    <p className="text-muted">作るファイルの名前：<code className="font-mono text-ink">{LOCAL_ENV[fw].file}</code></p>
-                    {connectionKey && (
-                      <div className="mt-2">
-                        <p className="mb-1 text-[11px] font-semibold text-ink">{LOCAL_ENV[fw].file} に貼る1行（そのままコピーできます）</p>
-                        <CopyField value={`AGENTGUARD_KEY=${connectionKey}`} label={`${LOCAL_ENV[fw].file} に貼る1行`} />
-                      </div>
-                    )}
-                    <p className="mt-2 text-muted">起動のしかた：</p>
-                    <div className="mt-1"><CopyField value={LOCAL_ENV[fw].command} label="起動のしかた" /></div>
-                    <p className={cx("mt-1", fw === "next" ? "text-muted" : "text-amber-800")}>{LOCAL_ENV[fw].note}</p>
-                  </div>
-                )}
-                <p className="mt-2 text-xs text-muted">{hostSpec.keyNote}</p>
+                <p className="mt-2 text-xs text-muted">{hostSpec.keyNote} 貼るキーは、ダウンロードしたフォルダの for_vercel_settings.txt にも入っています。</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-bold text-ink">ステップ3：接続キー（何もしなくて大丈夫）</p>
+                <div className="mt-2 flex items-start gap-2 rounded-xl bg-safe/10 p-3 text-xs text-emerald-900">
+                  <CircleCheck size={16} className="mt-0.5 shrink-0" />
+                  <p>{hostSpec.keyIntro}</p>
+                </div>
+                <details className="mt-3 rounded-xl border border-line p-3 text-xs">
+                  <summary className="cursor-pointer font-semibold text-brand">
+                    {host === "cloudrun" ? "GitHub と自動でつないでいるとき・フォルダを使わなかったとき" : "「.」ではじまるフォルダを上げられないとき・フォルダを使わなかったとき"}
+                  </summary>
+                  <p className="mt-2 text-muted">{hostSpec.keyNote}（ステップ2で、プログラムだけをダウンロードしたときも同じです）</p>
+                  <div className="mt-2"><KeyBox connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} /></div>
+                  {host === "cloudrun" ? (
+                    <CloudRunShortcut host={site.host} connectionKey={connectionKey} />
+                  ) : (
+                    <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted">
+                      {hostSpec.keySteps.map((s) => <li key={s}>{s}</li>)}
+                    </ol>
+                  )}
+                </details>
               </>
             )}
             <details className="mt-4 rounded-xl border border-line p-3 text-xs">
@@ -428,51 +481,11 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
               <p className="mt-1 text-muted">
                 秘密の設定に <code className="font-mono">AGENTGUARD_FAIL_CLOSED=true</code> も足すと、連絡がとれないときも<b className="text-ink">アクセスを止めて</b>、
                 確かめられないアクセスがサイトに届かないようにします。そのかわり、AgentGuard が止まっているあいだや、キーがまちがっているあいだは、サイトが見られなくなります
-                （キーを作り直したら、秘密の設定のキーもすぐに入れかえてください）。
+                （キーを作り直したら、サイトに置いたキーもすぐに入れかえてください）。
               </p>
               <div className="mt-2"><CopyField value="AGENTGUARD_FAIL_CLOSED=true" label="足す設定" /></div>
             </details>
-            <Nav onBack={() => go(1)} onNext={() => go(3)} nextLabel="キーを入れた" />
-          </>
-        )}
-
-        {step === 3 && fw && install && (
-          <>
-            <p className="text-sm font-bold text-ink">ステップ3：つなぐためのファイルを1つ置く</p>
-            <p className="mt-1 text-xs text-muted">
-              下のボタンで <b className="font-mono text-ink">{install.fileName}</b> をダウンロードして、
-              <b className="text-ink">{install.place}</b>に置きます。
-              {install.addLines ? "そのあと、決まった場所に1〜2行だけ書き足します。" : "置くだけで終わりです（中身を書きかえる必要はありません）。"}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button onClick={() => download(install.fileName, code)}>
-                <Download size={15} /> {install.fileName} をダウンロード
-              </Button>
-            </div>
-            <p className="mt-4 text-xs font-bold text-ink">置く場所（置いたあとの形）</p>
-            <pre className={pre}>{install.tree}</pre>
-            <p className="mt-1 text-[11px] text-muted">
-              「サイトのフォルダ」とは、<code className="font-mono">{fw === "fastapi" ? "main.py" : "package.json"}</code> が入っているフォルダのことです。
-            </p>
-            {fw === "next" && (
-              <p className="mt-1 text-[11px] text-muted">
-                Next.js のバージョンが15より前のときは、ファイルの名前を <code className="font-mono">middleware.ts</code> に変えてください。
-                すでに同じ名前のファイルがあるときは、上書きしないで、サイトを作った人に相談してください（2つの中身をまとめる必要があります）。
-              </p>
-            )}
-            {install.addLines && (
-              <>
-                <p className="mt-4 text-xs font-bold text-ink">書き足す行（{install.addWhere}）</p>
-                <div className="mt-1"><CopyField value={install.addLines} label="書き足す行" /></div>
-                <p className="mt-2 text-[11px] font-semibold text-muted">書き足したあとは、たとえばこんな感じです</p>
-                <pre className={pre}>{install.context}</pre>
-              </>
-            )}
-            <details className="mt-3 text-xs">
-              <summary className="cursor-pointer font-semibold text-brand">ダウンロードできないとき：中身をコピーする</summary>
-              <div className="mt-2"><CopyField value={code} label={`${install.fileName} の中身`} /></div>
-            </details>
-            <Nav onBack={() => go(2)} onNext={() => go(4)} nextLabel="ファイルを置いた" />
+            <Nav onBack={() => go(2)} onNext={() => go(4)} nextLabel={hostSpec.needsKey ? "キーを入れた" : "次へ"} />
           </>
         )}
 
@@ -509,9 +522,12 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
               <details className="mt-3 text-xs text-muted">
                 <summary className="cursor-pointer font-semibold text-brand">5分たっても変わらないとき</summary>
                 <ul className="mt-2 list-disc space-y-1 pl-5">
-                  <li>秘密の設定の名前が <code className="font-mono">AGENTGUARD_KEY</code>（すべて大文字）になっていますか？</li>
-                  <li>キーを入れたあとに、サイトを更新しましたか？（Vercel と Cloud Run は、キーを入れたあとに更新しないと、キーが使われません）</li>
+                  <li><code className="font-mono">{SAVED_DIR}</code> フォルダも、サイトのフォルダに入っていますか？（Mac では見えないことがあります）</li>
+                  {hostSpec.needsKey && (
+                    <li>Vercel の設定の名前が <code className="font-mono">AGENTGUARD_KEY</code>（すべて大文字）になっていますか？　キーを入れたあとに、サイトを更新しましたか？</li>
+                  )}
                   <li>ファイルの名前（{install?.fileName}）と、置いた場所（{install?.place}）は合っていますか？</li>
+                  <li>キーを作り直したときは、フォルダをもう一度ダウンロードして、{SAVED_DIR} フォルダを入れかえてください。</li>
                   <li>それでもだめなときは、「戻る」で手順を見なおすか、下の「自分でやらないとき」で、サイトを作った人にやり方を渡してください。</li>
                 </ul>
               </details>

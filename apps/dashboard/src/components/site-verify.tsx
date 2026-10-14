@@ -49,7 +49,7 @@ const FRAMEWORKS: { id: Framework; label: string }[] = [
 ];
 
 const STEPS: Record<Method, string[]> = {
-  file: ["合言葉を置く", "サイトを公開し直す", "確認する"],
+  file: ["合言葉を置く", "サイトを更新する", "確認する"],
   dns: ["DNSに記録を足す", "反映を待つ", "確認する"],
 };
 
@@ -192,21 +192,21 @@ function FilePlace({ site, framework, setFramework, connectionKey, keyHint, onRo
       {framework === "next" || framework === "express" || framework === "fastapi" ? (
         <div className="space-y-3">
           <p className="rounded-xl bg-safe/10 px-3 py-2 text-xs text-emerald-800">
-            <b>キー1つとコード1つで、所有確認と保護がまとめて終わります。</b>接続キーはサイトの環境変数にだけ置き、
-            所有確認には毎回ちがう「問題」への答えだけを返すので、キーが外から見えることはありません。
+            <b>キー1つとファイル1つで、あなたのサイトかどうかの確認と、守ることがまとめて終わります。</b>接続キーはサイトの秘密の設定（環境変数）にだけ置き、
+            確認には毎回ちがう「問題」への答えだけを返すので、キーが外から見えることはありません。
           </p>
           <div>
-            <p className="mb-1 text-xs font-bold text-ink">(1) サイトの環境変数 <code className="font-mono">AGENTGUARD_KEY</code> に、接続キーを設定する</p>
+            <p className="mb-1 text-xs font-bold text-ink">(1) サイトの秘密の設定（環境変数）に、<code className="font-mono">AGENTGUARD_KEY</code> という名前で接続キーを入れる</p>
             <KeyBox connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} />
           </div>
           <div>
             <p className="mb-1 text-xs font-bold text-ink">
-              (2) 次のコードを <code className="font-mono">{INSTALL[framework].fileName}</code> として保存し、{INSTALL[framework].place}に置く
+              (2) 次の中身を <code className="font-mono">{INSTALL[framework].fileName}</code> という名前で保存し、{INSTALL[framework].place}に置く
               {INSTALL[framework].addLines && <>（さらに{INSTALL[framework].addWhere}に <code className="font-mono">{INSTALL[framework].addLines.replace("\n", " / ")}</code> を足す）</>}
             </p>
-            <CopyField value={integrationSnippet(framework, ingestUrl, site.path ?? "")} label="組み込みコード" />
+            <CopyField value={integrationSnippet(framework, ingestUrl, site.path ?? "")} label="つなぐファイルの中身" />
             <details className="mt-1 text-xs text-muted">
-              <summary className="cursor-pointer font-semibold text-brand">環境変数 AGENTGUARD_KEY の設定場所</summary>
+              <summary className="cursor-pointer font-semibold text-brand">接続キー（AGENTGUARD_KEY）を入れる場所</summary>
               <ul className="mt-1 list-disc space-y-1 pl-5">
                 {KEY_PLACES.map((p) => <li key={p.name}><b className="text-ink">{p.name}</b>：{p.how}</li>)}
               </ul>
@@ -249,7 +249,7 @@ function FilePlace({ site, framework, setFramework, connectionKey, keyHint, onRo
           {(github || framework === "static") && (
             <p className="rounded-xl bg-warn/10 px-3 py-2 text-[11px] text-amber-800">
               注意：{github ? "GitHub Pages" : "HTMLだけのサイト"}は、サーバーで動くプログラムを置けません。
-              所有確認と登録はできますが、攻撃を検査する「組み込みコード」は動かないため、このままでは守れません。
+              あなたのサイトかどうかの確認と登録はできますが、攻撃を見張るプログラムは動かないため、このままでは守れません。
               守るには、Node.js や Python などサーバーで動くサイトが必要です。
             </p>
           )}
@@ -361,7 +361,7 @@ export function VerifyWizard({ site, onVerified, connectionKey, keyHint, onRotat
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="break-all font-mono text-sm font-bold">{site.url}</span>
-        <Badge tone="warn">所有確認まち</Badge>
+        <Badge tone="warn">確認まち</Badge>
         {!editing && (
           <button type="button" onClick={() => { setNewUrl(site.url); setEditing(true); }}
                   className="text-xs font-semibold text-brand hover:underline">URLを直す</button>

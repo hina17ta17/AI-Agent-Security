@@ -1,10 +1,13 @@
 /**
- * The integration code shown to site owners. One environment variable (AGENTGUARD_KEY) and one
- * block of code do everything:
+ * The integration code shown to site owners. One block of code and one connection key do everything:
  *  - answer AgentGuard's ownership check with HMAC(HMAC(key, "agentguard-verify"), challenge),
  *    so the key itself never leaves the site;
  *  - report each request (query, and form / JSON bodies) to /ingest and follow the allow/block
  *    decision (fail-open).
+ * The key comes from the environment variable AGENTGUARD_KEY, or else from the saved-key folder of
+ * the setup kit (.agentguard/.settings, see encodeSavedKey). That folder carries its own .gitignore,
+ * so it goes along when the site is deployed from its folder but is never pushed to GitHub, and the
+ * code answers 404 for it so it is never served to visitors.
  * Values of secret-looking fields are masked before they leave the site, except when the value
  * itself looks like an attack (a login form's password box is a classic injection point).
  * Must stay in sync with deriveVerifySecret() in src/lib/server/site.ts.
@@ -15,6 +18,20 @@
 export type ServerFramework = "next" | "express" | "fastapi";
 
 const VERIFY = "/.well-known/agentguard-verify.txt";
+
+/** The saved-key folder of the setup kit, as placed next to the site's code. */
+export const SAVED_DIR = ".agentguard";
+export const SAVED_FILE = ".settings"; // a dot name: static file servers skip it by default
+const PAD = "agentguard";
+
+/**
+ * The key as written in .agentguard/.settings: XOR-ed with a fixed pad and base64-encoded, so it is
+ * not readable at a glance (no "agk_", no "KEY"). This is not encryption: the real protection is that
+ * the folder is never pushed to GitHub and never served.
+ */
+export function encodeSavedKey(key: string): string {
+  return "v1:" + btoa(Array.from(key, (c, i) => String.fromCharCode(c.charCodeAt(0) ^ PAD.charCodeAt(i % PAD.length))).join(""));
+}
 
 // Shared by the JavaScript snippets (\x60 is a backtick, which a template string cannot hold as is).
 const JS_MASK = `// パスワードなどの欄は伏せて送ります（攻撃の形をした値だけは、検査のためそのまま送ります）
@@ -28,18 +45,36 @@ const mask = (v, k = "") =>
 export function integrationSnippet(fw: ServerFramework, ingestUrl: string, basePath: string): string {
   const verifyPath = `${basePath}${VERIFY}`;
   if (fw === "next") {
-    return `// AgentGuard 連携（Next.js）
-// 1) このファイル（proxy.ts）を、package.json と同じフォルダに置く（src フォルダを使っているなら src の中）
-//    ※ Next.js 15 以前は、ファイル名を middleware.ts にしてください
-// 2) 環境変数 AGENTGUARD_KEY に接続キーを設定する
-// これだけで、所有確認と保護の両方が動きます。コードの書き換えは不要です。
+    return `// AgentGuard とつなぐファイル（Next.js）
+// 1) このファイル（proxy.ts）と .agentguard フォルダを、package.json と同じフォルダに置く
+//    （src フォルダを使っているなら、proxy.ts だけ src の中に置く）
+//    ※ Next.js 15 より前は、ファイル名を middleware.ts にしてください
+// 2) 接続キーは .agentguard フォルダに保存してあります（このフォルダは GitHub には送られません）。
+//    Vercel のように GitHub から公開するときだけ、秘密の設定（環境変数）AGENTGUARD_KEY にもキーを入れます。
+// これだけで、あなたのサイトかどうかの確認と、守ることの両方が動きます。中身を書きかえる必要はありません。
 // 検査はサイトの処理より先に行われ、攻撃と判断したアクセスはサイトのコードまで届きません。
-// （任意）AGENTGUARD_FAIL_CLOSED=true も設定すると、AgentGuard に確認できないときもアクセスを止めます。
+// （使わなくても大丈夫）AGENTGUARD_FAIL_CLOSED=true も設定すると、AgentGuard に確認できないときもアクセスを止めます。
 import { NextResponse, type NextRequest } from "next/server";
 
 const AGENTGUARD_INGEST = "${ingestUrl}";
 const AGENTGUARD_VERIFY_PATH = "${verifyPath}";
 ${JS_MASK.replace("const mask = (v, k = \"\") =>", "const mask = (v: unknown, k = \"\"): unknown =>")}
+
+// 接続キー：秘密の設定 AGENTGUARD_KEY があればそれを、なければ .agentguard フォルダに保存したものを使います
+// （保存したキーは、見ただけでは分からない形にしてあります）
+type Fs = { readFileSync(path: string, encoding: "utf8"): string };
+function savedKey(): string | undefined {
+  try {
+    const fs = (process as unknown as { getBuiltinModule?: (id: string) => Fs }).getBuiltinModule?.("node:fs");
+    const line = fs?.readFileSync(process.cwd() + "/${SAVED_DIR}/${SAVED_FILE}", "utf8").split("\\n").find((l) => l.startsWith("v1:"));
+    if (!line) return undefined;
+    const pad = "${PAD}";
+    return Array.from(atob(line.slice(3).trim()), (c, i) => String.fromCharCode(c.charCodeAt(0) ^ pad.charCodeAt(i % pad.length))).join("");
+  } catch {
+    return undefined; // まだ置いていないときは、秘密の設定だけを使います
+  }
+}
+const SAVED_KEY = savedKey();
 
 async function hmac(key: BufferSource, message: string): Promise<ArrayBuffer> {
   const k = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -77,11 +112,13 @@ async function bodyOf(request: NextRequest): Promise<{ body: string; type: strin
 }
 
 export default async function agentguard(request: NextRequest) {
-  const key = process.env.AGENTGUARD_KEY;
-  if (!key) return NextResponse.next();
   const url = request.nextUrl;
+  // キーを保存したフォルダは、サイトを見る人には絶対に見せません
+  if (url.pathname.includes("/${SAVED_DIR}")) return new Response("Not Found", { status: 404 });
+  const key = process.env.AGENTGUARD_KEY || SAVED_KEY;
+  if (!key) return NextResponse.next();
   if (url.pathname === AGENTGUARD_VERIFY_PATH) {
-    // 所有確認：キーそのものは見せずに、毎回ちがう問題への答えだけを返す
+    // あなたのサイトかどうかの確認：キーそのものは見せずに、毎回ちがう問題への答えだけを返す
     const secret = await hmac(new TextEncoder().encode(key), "agentguard-verify");
     const answer = hex(await hmac(secret, url.searchParams.get("challenge") ?? ""));
     return new Response(answer, { headers: { "content-type": "text/plain" } });
@@ -116,16 +153,19 @@ export default async function agentguard(request: NextRequest) {
 export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };`;
   }
   if (fw === "express") {
-    return `// AgentGuard 連携（Express）
-// 1) このファイル（agentguard.cjs）を、server.js（または app.js）と同じフォルダに置く
+    return `// AgentGuard とつなぐファイル（Express）
+// 1) このファイル（agentguard.cjs）と .agentguard フォルダを、server.js（または app.js）と同じフォルダに置く
 // 2) server.js の app.use(express.json()) のすぐ下に、次の1行を足す
 //      require("./agentguard.cjs")(app);
 //    （import を使うプロジェクトなら： import agentguard from "./agentguard.cjs"; agentguard(app); ）
-// 3) 環境変数 AGENTGUARD_KEY に接続キーを設定する
-// これだけで、所有確認と保護の両方が動きます。
+// 3) 接続キーは .agentguard フォルダに保存してあります（このフォルダは GitHub には送られません）。
+//    GitHub から公開するときだけ、秘密の設定（環境変数）AGENTGUARD_KEY にもキーを入れます。
+// これだけで、あなたのサイトかどうかの確認と、守ることの両方が動きます。起動のしかたも、いつもどおりで大丈夫です。
 // 検査はサイトの処理（app.get など）より先に行われ、攻撃と判断したアクセスはサイトのコードまで届きません。
-// （任意）AGENTGUARD_FAIL_CLOSED=true も設定すると、AgentGuard に確認できないときもアクセスを止めます。
+// （使わなくても大丈夫）AGENTGUARD_FAIL_CLOSED=true も設定すると、AgentGuard に確認できないときもアクセスを止めます。
 const { createHmac } = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const AGENTGUARD_INGEST = "${ingestUrl}";
 const AGENTGUARD_VERIFY_PATH = "${verifyPath}";
@@ -133,12 +173,29 @@ ${JS_MASK}
 // 本当の接続元は X-Forwarded-For の最後（前の部分は偽装できます）
 const clientIp = (req) => (req.get("x-forwarded-for") || "").split(",").pop().trim() || req.socket.remoteAddress;
 
+// 接続キー：秘密の設定 AGENTGUARD_KEY があればそれを、なければ .agentguard フォルダに保存したものを使います
+// （保存したキーは、見ただけでは分からない形にしてあります）
+function savedKey() {
+  const pad = "${PAD}";
+  for (const dir of [__dirname, process.cwd()]) {
+    try {
+      const line = fs.readFileSync(path.join(dir, "${SAVED_DIR}", "${SAVED_FILE}"), "utf8").split("\\n").find((l) => l.startsWith("v1:"));
+      if (line) return Buffer.from(Buffer.from(line.slice(3).trim(), "base64").map((b, i) => b ^ pad.charCodeAt(i % pad.length))).toString();
+    } catch {
+      // まだ置いていないときは、秘密の設定だけを使います
+    }
+  }
+}
+const SAVED_KEY = savedKey();
+
 module.exports = function agentguard(app) {
   app.use(async (req, res, next) => {
-    const key = process.env.AGENTGUARD_KEY;
+    // キーを保存したフォルダは、サイトを見る人には絶対に見せません
+    if (req.path.includes("/${SAVED_DIR}")) return res.status(404).type("text/plain").send("Not Found");
+    const key = process.env.AGENTGUARD_KEY || SAVED_KEY;
     if (!key) return next();
     if (req.path === AGENTGUARD_VERIFY_PATH) {
-      // 所有確認：キーそのものは見せずに、毎回ちがう問題への答えだけを返す
+      // あなたのサイトかどうかの確認：キーそのものは見せずに、毎回ちがう問題への答えだけを返す
       const secret = createHmac("sha256", key).update("agentguard-verify").digest();
       const answer = createHmac("sha256", secret).update(String(req.query.challenge || "")).digest("hex");
       return res.type("text/plain").send(answer);
@@ -170,16 +227,19 @@ module.exports = function agentguard(app) {
   });
 };`;
   }
-  return `# AgentGuard 連携（FastAPI）
-# 1) このファイル（agentguard.py）を、main.py と同じフォルダに置く
+  return `# AgentGuard とつなぐファイル（FastAPI）
+# 1) このファイル（agentguard.py）と .agentguard フォルダを、main.py と同じフォルダに置く
 # 2) main.py の app = FastAPI() のすぐ下に、次の2行を足す
 #      from agentguard import protect
 #      protect(app)
-# 3) 環境変数 AGENTGUARD_KEY に接続キーを設定する（httpx を使うので、まだなら pip install httpx）
-# これだけで、所有確認と保護の両方が動きます。
+# 3) 接続キーは .agentguard フォルダに保存してあります（このフォルダは GitHub には送られません）。
+#    GitHub から公開するときだけ、秘密の設定（環境変数）AGENTGUARD_KEY にもキーを入れます。
+#    httpx を使うので、まだ入れていなければ pip install httpx
+# これだけで、あなたのサイトかどうかの確認と、守ることの両方が動きます。起動のしかたも、いつもどおりで大丈夫です。
 # 検査はサイトの処理（@app.get など）より先に行われ、攻撃と判断したアクセスはサイトのコードまで届きません。
-# （任意）AGENTGUARD_FAIL_CLOSED=true も設定すると、AgentGuard に確認できないときもアクセスを止めます。
-import hashlib, hmac, json, os, re
+# （使わなくても大丈夫）AGENTGUARD_FAIL_CLOSED=true も設定すると、AgentGuard に確認できないときもアクセスを止めます。
+import base64, hashlib, hmac, json, os, re
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode
 
 import httpx
@@ -200,6 +260,24 @@ def mask(v, k=""):
     if k and SECRET.search(k) and not (isinstance(v, str) and ATTACK.search(v)):
         return "[伏せ字]"
     return v
+
+
+def _saved_key():
+    # 接続キー：秘密の設定 AGENTGUARD_KEY があればそれを、なければ .agentguard フォルダに保存したものを使います
+    # （保存したキーは、見ただけでは分からない形にしてあります）
+    pad = b"${PAD}"
+    for folder in (Path(__file__).resolve().parent, Path.cwd()):
+        try:
+            for line in (folder / "${SAVED_DIR}" / "${SAVED_FILE}").read_text("utf-8").splitlines():
+                if line.startswith("v1:"):
+                    raw = base64.b64decode(line[3:].strip())
+                    return bytes(b ^ pad[i % len(pad)] for i, b in enumerate(raw)).decode()
+        except (OSError, ValueError):
+            pass  # まだ置いていないときは、秘密の設定だけを使います
+    return None
+
+
+SAVED_KEY = _saved_key()
 
 
 def client_ip(request):
@@ -227,11 +305,14 @@ async def body_of(request):
 def protect(app):
     @app.middleware("http")
     async def agentguard(request, call_next):
-        key = os.environ.get("AGENTGUARD_KEY")
+        # キーを保存したフォルダは、サイトを見る人には絶対に見せません
+        if "/${SAVED_DIR}" in request.url.path:
+            return PlainTextResponse("Not Found", status_code=404)
+        key = os.environ.get("AGENTGUARD_KEY") or SAVED_KEY
         if not key:
             return await call_next(request)
         if request.url.path == AGENTGUARD_VERIFY_PATH:
-            # 所有確認：キーそのものは見せずに、毎回ちがう問題への答えだけを返す
+            # あなたのサイトかどうかの確認：キーそのものは見せずに、毎回ちがう問題への答えだけを返す
             secret = hmac.new(key.encode(), b"agentguard-verify", hashlib.sha256).digest()
             challenge = request.query_params.get("challenge", "").encode()
             return PlainTextResponse(hmac.new(secret, challenge, hashlib.sha256).hexdigest())
@@ -261,7 +342,8 @@ def protect(app):
 
 /**
  * How each framework is installed, in the owner's terms: the file to save (and where), the folder
- * picture, and the line(s) to add to an existing file. Next.js needs no edit at all.
+ * picture (with the setup kit's saved-key folder), and the line(s) to add to an existing file.
+ * Next.js needs no edit at all.
  */
 export const INSTALL: Record<ServerFramework, {
   fileName: string; place: string; tree: string; addLines: string | null; addWhere: string | null; context: string | null;
@@ -269,7 +351,7 @@ export const INSTALL: Record<ServerFramework, {
   next: {
     fileName: "proxy.ts",
     place: "package.json と同じフォルダ（src フォルダがあるなら src の中）",
-    tree: "あなたのサイトのフォルダ/\n├─ package.json\n├─ next.config.js\n├─ proxy.ts        ← ここに置く（新しいファイル）\n└─ app/",
+    tree: "あなたのサイトのフォルダ/\n├─ package.json\n├─ next.config.js\n├─ proxy.ts        ← ここに置く（プログラム）\n├─ .agentguard/    ← ここに置く（キーを保存したフォルダ）\n└─ app/",
     addLines: null,
     addWhere: null,
     context: null,
@@ -277,7 +359,7 @@ export const INSTALL: Record<ServerFramework, {
   express: {
     fileName: "agentguard.cjs",
     place: "server.js（または app.js）と同じフォルダ",
-    tree: "あなたのサイトのフォルダ/\n├─ package.json\n├─ server.js       ← ここに1行足す\n└─ agentguard.cjs  ← ここに置く（新しいファイル）",
+    tree: "あなたのサイトのフォルダ/\n├─ package.json\n├─ server.js       ← ここに1行足す\n├─ agentguard.cjs  ← ここに置く（プログラム）\n└─ .agentguard/    ← ここに置く（キーを保存したフォルダ）",
     addLines: 'require("./agentguard.cjs")(app);',
     addWhere: "server.js の中の「app.use(express.json());」と書いてある行のすぐ下（app.get などより上）",
     context: 'const app = express();\napp.use(express.json());\nrequire("./agentguard.cjs")(app);   // ← この1行を足す\n\napp.get("/", (req, res) => { ... });',
@@ -285,16 +367,20 @@ export const INSTALL: Record<ServerFramework, {
   fastapi: {
     fileName: "agentguard.py",
     place: "main.py と同じフォルダ",
-    tree: "あなたのサイトのフォルダ/\n├─ requirements.txt\n├─ main.py         ← ここに2行足す\n└─ agentguard.py   ← ここに置く（新しいファイル）",
+    tree: "あなたのサイトのフォルダ/\n├─ requirements.txt\n├─ main.py         ← ここに2行足す\n├─ agentguard.py   ← ここに置く（プログラム）\n└─ .agentguard/    ← ここに置く（キーを保存したフォルダ）",
     addLines: "from agentguard import protect\nprotect(app)",
     addWhere: "main.py の中の「app = FastAPI()」と書いてある行のすぐ下",
     context: "app = FastAPI()\nfrom agentguard import protect   # ← この2行を足す\nprotect(app)\n\n@app.get(\"/\")\ndef home(): ...",
   },
 };
 
-/** Where to put AGENTGUARD_KEY, by hosting service. */
+/**
+ * Where to put AGENTGUARD_KEY by hand, by hosting service: for a file installed on its own, without
+ * the setup kit's saved-key folder.
+ */
 export const KEY_PLACES: { name: string; how: string }[] = [
+  { name: "かんたんな方法", how: "「守るサイト」の画面でフォルダ（ZIP）をダウンロードすると、キーを保存した .agentguard フォルダが入っています。プログラムといっしょにサイトのフォルダに置けば、キーを入れる手順はいりません（Vercel だけは下も必要）" },
   { name: "Vercel", how: "プロジェクトの Settings → Environment Variables で AGENTGUARD_KEY を追加 → Deployments から Redeploy" },
   { name: "Cloud Run", how: "サービスの「新しいリビジョンの編集とデプロイ」→「変数とシークレット」で AGENTGUARD_KEY を追加" },
-  { name: "自分のPC・その他", how: "Next.js は .env.local に AGENTGUARD_KEY=… と書くだけ。Express は .env に書いて node --env-file=.env server.js で起動、FastAPI は .env に書いて uvicorn main:app --env-file .env で起動（どちらもファイルを置くだけでは読み込まれません）。このファイルは公開リポジトリに入れない" },
+  { name: "自分のPC・その他", how: "サーバーの秘密の設定（環境変数）に AGENTGUARD_KEY を入れて、サイトを起動しなおす。キーをファイルの中にそのまま書いたり、GitHub に上げたりしない" },
 ];

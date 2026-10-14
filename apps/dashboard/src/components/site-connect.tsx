@@ -20,7 +20,7 @@ export function KeyBox({ connectionKey, keyHint, onRotate }: {
   const [error, setError] = useState<string | null>(null);
 
   async function rotate() {
-    if (keyHint && !window.confirm("いまの接続キーは使えなくなります。新しいキーを作りますか？（サイトの秘密の設定に入れたキーも、新しいキーに入れかえる必要があります）")) return;
+    if (keyHint && !window.confirm("いまの接続キーは使えなくなります。新しいキーを作りますか？（サイトに置いた .agentguard フォルダや、秘密の設定に入れたキーも、新しいものに入れかえる必要があります）")) return;
     setBusy(true);
     setError(null);
     try { await onRotate(); } catch (e) { setError(e instanceof Error ? e.message : "作り直せませんでした"); } finally { setBusy(false); }
@@ -32,10 +32,10 @@ export function KeyBox({ connectionKey, keyHint, onRotate }: {
         <p className="flex items-center gap-1.5 text-xs font-bold text-amber-700">
           <KeyRound size={14} /> 接続キー（この画面を閉じると、もう見られません。いまコピーしてください）
         </p>
-        <p className="mt-1 text-xs text-muted">このキーを、サイトの秘密の設定（環境変数）に <code className="font-mono">AGENTGUARD_KEY</code> という名前で入れます。</p>
+        <p className="mt-1 text-xs text-muted">ダウンロードするフォルダには、このキーが最初から保存されます。Vercel など GitHub から公開するときは、サイトの秘密の設定（環境変数）にも <code className="font-mono">AGENTGUARD_KEY</code> という名前で入れます。</p>
         <div className="mt-2"><CopyField value={connectionKey} label="接続キー" /></div>
         <p className="mt-2 text-[11px] text-muted">
-          <b className="text-ink">接続キーは、人に見せてはいけない合言葉です。</b>サイトのファイルの中には書かずに、秘密の設定にだけ入れてください。
+          <b className="text-ink">接続キーは、人に見せてはいけない合言葉です。</b>サイトのファイルの中にそのまま書いたり、GitHub に上げたりしないでください。
         </p>
       </div>
     );
@@ -79,9 +79,9 @@ export function IntegrationCode({ framework, onFramework, basePath }: {
         ファイルの名前：<b className="font-mono text-ink">{INSTALL[framework].fileName}</b>（{INSTALL[framework].place}に置きます）
         {INSTALL[framework].addLines && <>。{INSTALL[framework].addWhere}に <code className="font-mono">{INSTALL[framework].addLines.replace("\n", " / ")}</code> を書き足します</>}
       </p>
-      <CopyField value={integrationSnippet(framework, ingestUrl, basePath)} label="組み込みコード" />
+      <CopyField value={integrationSnippet(framework, ingestUrl, basePath)} label="つなぐファイルの中身" />
       <details className="text-xs text-muted">
-        <summary className="cursor-pointer font-semibold text-brand">接続キー（AGENTGUARD_KEY）を入れる場所</summary>
+        <summary className="cursor-pointer font-semibold text-brand">接続キー（AGENTGUARD_KEY）を、自分で入れるとき</summary>
         <ul className="mt-1 list-disc space-y-1 pl-5">
           {KEY_PLACES.map((p) => <li key={p.name}><b className="text-ink">{p.name}</b>：{p.how}</li>)}
         </ul>
