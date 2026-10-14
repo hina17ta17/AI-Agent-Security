@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowLeft, ArrowRight, Check, CircleCheck, ClipboardList, Copy, Download, ExternalLink, FolderDown, Loader2, PartyPopper, Trash2,
+  ArrowLeft, ArrowRight, Bot, Check, CircleCheck, ClipboardList, Copy, Download, ExternalLink, FolderDown, Loader2, PartyPopper, Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -12,8 +12,8 @@ import type { ProtectedSite } from "@/lib/types";
 
 import { CopyField } from "./copy-field";
 import { KeyBox } from "./site-connect";
-import { cloudRunCommand, cloudRunService, deployTool, downloadSetupKit, type Host, HOSTS, publishGuide } from "./setup-kit";
-import { INSTALL, integrationSnippet, SAVED_DIR, type ServerFramework } from "./site-snippets";
+import { AI_GUIDE, AI_PROMPT, cloudRunCommand, cloudRunService, deployTool, downloadSetupKit, type Host, HOSTS, publishGuide } from "./setup-kit";
+import { INSTALL, integrationSnippet, KIT_DIR, SAVED_DIR, type ServerFramework } from "./site-snippets";
 import { Badge, Button, cx } from "./ui";
 
 /**
@@ -380,7 +380,7 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button disabled={!connectionKey}
                       onClick={() => downloadSetupKit({ kind: fw, host, siteUrl: site.url, siteHost: site.host, key: connectionKey,
-                                                        snippet: code, dashboardUrl: window.location.origin })}>
+                                                        snippet: code, dashboardUrl: window.location.origin, basePath: site.path ?? "" })}>
                 <FolderDown size={15} /> フォルダをダウンロード（ZIP）
               </Button>
               <span className="text-[11px] text-muted">
@@ -391,6 +391,7 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
             <pre className={pre}>{[
               "agentguard-setup/",
               "├─ READ_ME_FIRST.html      ← やり方の説明（最初に開く）",
+              `├─ ${AI_GUIDE}  ← Claude Code（AI）向けの指示書`,
               "├─ files_for_your_site/    ← この中の2つを、サイトのフォルダに入れる",
               `│  ├─ ${install.fileName.padEnd(18)}← プログラム`,
               `│  └─ ${(SAVED_DIR + "/").padEnd(18)}← 接続キーを保存したフォルダ`,
@@ -407,7 +408,7 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
             {fw === "next" && (
               <p className="mt-1 text-[11px] text-muted">
                 <code className="font-mono">src</code> フォルダを使っているときは、{install.fileName} だけを src の中に移します。
-                Next.js のバージョンが15より前のときは、ファイルの名前を <code className="font-mono">middleware.ts</code> に変えてください。
+                Next.js のバージョンが15以前のときは、ファイルの名前を <code className="font-mono">middleware.ts</code> に変えて、キーを秘密の設定（環境変数）にも入れてください（このバージョンでは、保存したキーのフォルダを読めないため）。
                 すでに同じ名前のファイルがあるときは、上書きしないで、サイトを作った人に相談してください。
               </p>
             )}
@@ -423,6 +424,18 @@ export function ConnectWizard({ site, connectionKey, keyHint, onRotate, onVerifi
               <b>公開する（デプロイする）とき、動くプログラムは {install.fileName} です。</b>
               {SAVED_DIR} フォルダは、プログラムがキーを読むためのもので、GitHub には送られず、サイトを見る人にも見えません。
               {" "}{deployTool(host, fw)}
+            </div>
+            <div className="mt-3 rounded-xl border border-brand/30 bg-brand/5 p-3 text-xs">
+              <p className="flex items-center gap-1.5 font-bold text-ink"><Bot size={14} className="text-brand" /> Claude Code（AI）にやってもらうこともできます</p>
+              <ol className="mt-1 list-decimal space-y-1 pl-5 text-muted">
+                <li>ダウンロードした <code className="font-mono">{KIT_DIR}</code> フォルダを、サイトのフォルダの中に入れます。</li>
+                <li>サイトのフォルダで Claude Code を開き、次の文を貼り付けます。</li>
+              </ol>
+              <div className="mt-2"><CopyField value={AI_PROMPT} label="Claude Code に貼る文" /></div>
+              <p className="mt-2 text-muted">
+                ファイルを置く・書き足す・動くか確かめる・公開する、までを指示書（{AI_GUIDE}）のとおりに進めます。
+                GitHub に送る（push）・公開する前には、確認を聞いてくるので、内容を見て OK してください。そのあとはステップ4で待つだけです。
+              </p>
             </div>
             <details className="mt-3 text-xs">
               <summary className="cursor-pointer font-semibold text-brand">フォルダを使わないとき：プログラムだけをダウンロードする</summary>

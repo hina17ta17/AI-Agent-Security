@@ -10,6 +10,8 @@
  *   │  └─ .agentguard/                     the saved key: deployed with the site, never pushed
  *   │     ├─ .gitignore                    "*": git never sends this folder to GitHub
  *   │     └─ .settings                     the key, written so it is not readable at a glance
+ *   ├─ CLAUDE_CODE_SETUP.md                the same steps written for an AI assistant (Claude Code)
+ *   ├─ .gitignore                          "*": the kit itself is never pushed, even inside the site
  *   └─ for_vercel_settings.txt             Vercel only: the key to paste into Vercel's settings
  *
  * The key is saved from the start, so a site deployed from its folder (Cloud Run with gcloud, own
@@ -18,7 +20,7 @@
  * File names are ASCII on purpose: some unzip tools garble non-ASCII names. The guide is Japanese.
  */
 
-import { encodeSavedKey, INSTALL, SAVED_DIR, SAVED_FILE, type ServerFramework } from "./site-snippets";
+import { encodeSavedKey, INSTALL, KIT_DIR, SAVED_DIR, SAVED_FILE, type ServerFramework } from "./site-snippets";
 
 export type Host = "vercel" | "cloudrun" | "other";
 
@@ -250,6 +252,7 @@ export type KitOptions = {
   key: string | null; // shown only right after it is issued; null -> no saved key, the guide says how to get one
   snippet: string;
   dashboardUrl: string;
+  basePath?: string; // the site's path under its host ("" for the whole host)
 };
 
 const KIND_LABEL: Record<ServerFramework, string> = { next: "Next.js", express: "Express（Node.js）", fastapi: "FastAPI（Python）" };
@@ -314,7 +317,7 @@ export function guideHtml(o: KitOptions): string {
     : `<p>Next.js は、ファイルを置くだけで大丈夫です。<b>この手順はとばしてください。</b></p>`;
   const nextNotes = o.kind === "next"
     ? `<ul class="muted"><li>サイトのフォルダに <code>src</code> というフォルダがあって、その中に <code>app</code> がある場合は、<code>${i.fileName}</code> だけを <code>src</code> の中に移します（<code>.agentguard</code> は <code>package.json</code> のとなりのままです）。</li>
-       <li>Next.js のバージョンが15より前のときは、ファイルの名前を <code>middleware.ts</code> に変えてください。</li>
+       <li>Next.js のバージョンが15以前のときは、ファイルの名前を <code>middleware.ts</code> に変えてください。このバージョンでは保存したキーのフォルダを読めないので、キーを秘密の設定（環境変数）<code>AGENTGUARD_KEY</code> にも入れてください。</li>
        <li>すでに同じ名前のファイルがあるときは、上書きしないで、サイトを作った人に相談してください（2つの中身をまとめる必要があります）。</li></ul>`
     : "";
   const noKey = o.key === null
@@ -357,7 +360,14 @@ ${noKey}
   <tr><td><code>files_for_your_site/${i.fileName}</code></td><td><b>プログラム</b>。サイトに届いたアクセスを、サイトの処理より先に AgentGuard に見せて、攻撃なら止めます</td><td><b>する</b>（GitHub にも送ります）</td></tr>
   ${o.key !== null ? `<tr><td><code>files_for_your_site/${SAVED_DIR}/</code></td><td>接続キー（人に見せてはいけない合言葉）を保存したフォルダ。プログラムが自分で読みこみます</td><td><b>する</b>（サーバーには届きます。でも GitHub には送られず、サイトを見る人にも見えません）</td></tr>` : ""}
   ${vercel ? `<tr><td><code>${VERCEL_FILE}</code></td><td>Vercel の設定に貼るキー</td><td>しない（手順3で使ったら、消して大丈夫）</td></tr>` : ""}
+  <tr><td><code>${AI_GUIDE}</code></td><td>Claude Code（AI）にやってもらうときの指示書</td><td>しない</td></tr>
 </table></div>
+<div class="box"><h4>Claude Code（AI）にやってもらうこともできます</h4>
+  <ol><li>この <code>${KIT_DIR}</code> フォルダを、サイトのフォルダの中に入れます。</li>
+    <li>サイトのフォルダで Claude Code を開き、次の文を貼り付けます。</li></ol>
+  <pre>${esc(AI_PROMPT)}</pre>
+  <p class="muted">GitHub に送る（push）・公開する（デプロイ）前に、Claude Code が確認を聞いてきます。内容を見て OK してください。終わったら、手順5で「つながりました」になったか見てください。</p>
+</div>
 <div class="box"><h4>公開する（デプロイする）とき、動くプログラムはどれ？</h4>
   <p>サーバーの上で動くのは <code>${i.fileName}</code> だけです。サイトに届いたアクセスを、サイトの処理より先に受けとって、AgentGuard に見せます。接続キーは、このプログラムが <code>${SAVED_DIR}</code> フォルダから自分で読みこみます${vercel ? "（Vercel では、Vercel の設定に入れたキーを使います）" : ""}。</p>
   <p class="muted">${esc(deployTool(o.host, o.kind))}</p>
@@ -402,6 +412,7 @@ ${publishSection(o)}
   <li>このフォルダの中には <code>.gitignore</code> というファイルが入っていて、GitHub には送られないようになっています（このファイルは消さないでください）。また、プログラムが、サイトを見る人からこのフォルダを見えないようにしています。</li>
   <li>キーは、見ただけでは分からない形で保存してあります。ただし暗号ではないので、上の2つのしくみ（GitHub に送らない・サイトを見る人に見せない）で守っています。</li>
   <li>キーをなくしたときや、人に見られてしまったときは、AgentGuard の画面の「キーをなくした・作り直す」を押してください。古いキーはすぐに使えなくなります。</li>
+  <li>この <code>${KIT_DIR}</code> フォルダにも <code>.gitignore</code> が入っているので、サイトのフォルダの中に置いても GitHub には送られません。ただし、Cloud Run などに公開する（デプロイする）前には、サイトのフォルダの外に出してください（キーが入っているためです）。</li>
   <li>（使わなくても大丈夫）秘密の設定に <code>AGENTGUARD_FAIL_CLOSED=true</code> も足すと、AgentGuard と連絡がとれないときもアクセスを止めて、より安全にできます。そのかわり、AgentGuard が止まっているあいだは、サイトも見られなくなります。</li>
 </ul>
 
@@ -420,6 +431,294 @@ ${publishSection(o)}
 `;
 }
 
+// ----------------------------------------------------------------------------- the guide for an AI assistant
+
+/** The same setup written for Claude Code (or another coding assistant) working in the site's folder. */
+export const AI_GUIDE = "CLAUDE_CODE_SETUP.md";
+export const AI_PROMPT = `${KIT_DIR}/${AI_GUIDE} を読んで、その手順でこのサイトを AgentGuard につないでください。`;
+
+// Read the saved key without showing it, to hand it straight to a command (bash, in the folder that holds .agentguard).
+const DECODE_NODE = `node -e 'const p="agentguard",l=require("fs").readFileSync(".agentguard/.settings","utf8").split("\\n").find(x=>x.startsWith("v1:"));process.stdout.write(Buffer.from(Buffer.from(l.slice(3).trim(),"base64").map((b,i)=>b^p.charCodeAt(i%p.length))).toString())'`;
+const DECODE_PY = `python -c 'import base64;p=b"agentguard";l=next(x for x in open(".agentguard/.settings",encoding="utf-8") if x.startswith("v1:"));r=base64.b64decode(l[3:].strip());print(bytes(b^p[i%len(p)] for i,b in enumerate(r)).decode(),end="")'`;
+
+function aiSteps(o: KitOptions): { check: string; prereq: string; place: string; add: string } {
+  if (o.kind === "next") {
+    return {
+      check: "`package.json` の dependencies に `next` がある",
+      prereq: "`next` のバージョンを確かめる（`package.json`、または `node_modules/next/package.json`）。手順2で使う。",
+      place: `1. \`next\` のバージョンで、ファイルの名前を決める。
+   - **16 以上**：\`files_for_your_site/proxy.ts\` を \`proxy.ts\` のまま置く。
+   - **15.5 以上 16 未満**：\`middleware.ts\` という名前で置き、ファイルの最後の \`config\` に \`runtime: "nodejs"\` を足す（例：\`export const config = { runtime: "nodejs", matcher: [...] };\`）。足さないと保存したキーを読めない。
+   - **15.4 以下**：\`middleware.ts\` という名前で置く。このバージョンでは保存したキーを読めないので、手順4で環境変数 \`AGENTGUARD_KEY\` も必ず入れる。
+2. 置く場所：\`src/app\` か \`src/pages\` があれば \`src/\` の中、なければ \`package.json\` と同じフォルダ。
+3. \`files_for_your_site/.agentguard/\` を、中の \`.gitignore\` と \`.settings\` ごと、**\`package.json\` と同じフォルダ**にコピーする（\`src\` を使っていてもここ。プログラムは起動したときのフォルダから読む）。
+4. すでに \`proxy.ts\` か \`middleware.ts\` があるときは、上書きしない。ユーザーに確認してから、1つにまとめる：
+   - AgentGuard の処理を先に呼び、それが「通す」以外（403・503・404・確認用の答え）を返したら、それをそのまま返す。見分けやすいように、AgentGuard の関数を「通すときは \`null\` を返す」形に変えてよい（中身の変更はここだけ）。
+   - 「通す」ときは、もとの処理を続ける。
+   - \`config.matcher\` は、もとの範囲と AgentGuard の範囲（\`/((?!_next/static|_next/image|favicon.ico).*)\`）の両方が入るようにする。`,
+      add: "Next.js は書き足しなし。この手順はとばす。",
+    };
+  }
+  if (o.kind === "express") {
+    return {
+      check: "`package.json` の dependencies に `express` がある",
+      prereq: "Node.js が 18 以上か（`node --version`）。プログラムは `fetch` を使う。",
+      place: `1. \`express()\` を呼んでいるファイル（サーバーの入口）を探す：
+   \`\`\`bash
+   grep -rn "express()" --include=*.js --include=*.cjs --include=*.mjs --include=*.ts . | grep -v node_modules
+   \`\`\`
+2. \`files_for_your_site/agentguard.cjs\` を、そのファイルと同じフォルダに置く。
+3. \`files_for_your_site/.agentguard/\` を、中の \`.gitignore\` と \`.settings\` ごと、同じフォルダに置く（\`package.json\` のフォルダでもよい。プログラムは、自分のフォルダと、起動したときのフォルダの両方を探す）。`,
+      add: `1行だけ書き足す。
+- 場所：\`app.use(express.json())\` / \`app.use(express.urlencoded(...))\` の**すぐ下**。ルート（\`app.get\` など）、\`app.use(router)\`、\`express.static\` より**上**。body を読む設定がなければ \`const app = express();\` のすぐ下。
+- CommonJS（\`require\` で書かれている）：
+  \`\`\`js
+  require("./agentguard.cjs")(app);
+  \`\`\`
+- ES Modules（\`package.json\` に \`"type": "module"\`、または \`import\` で書かれている）：ファイルの先頭の import に \`import agentguard from "./agentguard.cjs";\` を足し、上の場所に \`agentguard(app);\` を書く。
+- TypeScript をビルドして動かしているときは、実行される JS から \`agentguard.cjs\` が見えるようにする（ビルド先にコピーされないなら、\`package.json\` のフォルダに置いて \`require(require("node:path").join(process.cwd(), "agentguard.cjs"))(app);\`）。
+- 書き足したあとの例：
+  \`\`\`js
+${(INSTALL.express.context ?? "").split("\n").map((l) => `  ${l}`).join("\n")}
+  \`\`\``,
+    };
+  }
+  return {
+    check: "`requirements.txt` か `pyproject.toml` に `fastapi` がある",
+    prereq: "`httpx` が依存に入っているか。なければ `requirements.txt`（または `pyproject.toml`）に `httpx` を足して、インストールする（例：`pip install httpx`）。",
+    place: `1. \`FastAPI(\` を呼んでいるファイルを探す：
+   \`\`\`bash
+   grep -rn "FastAPI(" --include=*.py . | grep -v -e "/.venv/" -e "/venv/"
+   \`\`\`
+2. \`files_for_your_site/agentguard.py\` を、そのファイルと同じフォルダに置く。
+3. \`files_for_your_site/.agentguard/\` を、中の \`.gitignore\` と \`.settings\` ごと、同じフォルダに置く（起動するフォルダでもよい。プログラムは両方を探す）。`,
+    add: `2行だけ書き足す。
+- 場所：\`app = FastAPI(...)\` の**すぐ下**。
+  \`\`\`python
+  from agentguard import protect
+  protect(app)
+  \`\`\`
+- パッケージの中にあるとき（例：\`uvicorn app.main:app\` で起動）は、プロジェクトの書き方に合わせて \`from .agentguard import protect\` か \`from app.agentguard import protect\` にする。
+- 書き足したあとの例：
+  \`\`\`python
+${(INSTALL.fastapi.context ?? "").split("\n").map((l) => `  ${l}`).join("\n")}
+  \`\`\``,
+  };
+}
+
+function aiKeyStep(o: KitOptions, service: string, region: string): string {
+  const oldNext = o.kind === "next"
+    ? "\n- Next.js 15.4 以下で `middleware.ts` にしたときは、公開先にかかわらず、環境変数 `AGENTGUARD_KEY` が必要（取り出し方は下の「キーの取り出し方」）。"
+    : "";
+  if (o.host === "vercel") {
+    return `**Vercel は必ず環境変数が必要。** Vercel は GitHub からビルドするので、\`.agentguard/\` は届かない（git に入らないため）。環境変数 \`AGENTGUARD_KEY\` を Production に入れる（Preview も使うなら Preview にも）。
+- Vercel CLI でログイン済みで、このフォルダがリンク済み（\`.vercel/project.json\` がある）なら、キーを表示せずに入れられる（bash、サイトのフォルダで）：
+  \`\`\`bash
+  grep '^agk_' ${KIT_DIR}/${VERCEL_FILE} | tr -d '\\r\\n' | npx vercel env add AGENTGUARD_KEY production
+  \`\`\`
+- CLI が使えないとき、または上がうまくいかないときは、ユーザーにお願いする：Vercel のプロジェクト →「Settings」→「Environment Variables」で、Key に \`AGENTGUARD_KEY\`、Value に \`${KIT_DIR}/${VERCEL_FILE}\` の \`agk_\` ではじまる行を貼り、「Save」。あなた（AI）はこのファイルを開かない。
+- 入れたキーは、次のデプロイから使われる。`;
+  }
+  if (o.host === "cloudrun") {
+    return `**ふつうは何もしない。** \`gcloud run deploy --source .\` で公開すると、\`.agentguard/\` もいっしょに届き、プログラムが読む。次だけ確かめる：
+- \`.gcloudignore\` があるなら、\`.agentguard\` や「.」ではじまるファイルを除外していないか（手順6の \`gcloud meta list-files-for-upload .\` で確かめられる）。
+- \`Dockerfile\` で動かしているなら、\`COPY\` でプログラムと \`.agentguard/\` がイメージに入るか（\`COPY . .\` なら大丈夫）。\`.dockerignore\` で除外していないか。
+- **GitHub から自動でデプロイしている**（Cloud Build のトリガー・継続的デプロイ）ときだけは \`.agentguard/\` が届かないので、環境変数に入れる（ユーザーに確認してから。表示しないで渡す）：
+  \`\`\`bash
+  gcloud run services update ${service} --region ${region} --update-env-vars "AGENTGUARD_KEY=$(${DECODE_NODE})"
+  \`\`\`${oldNext}`;
+  }
+  return `**何もしない。** プログラムが \`.agentguard/\` から読む。サーバーに上げるとき「.」ではじまるフォルダが上がらない仕組みなら、そのサーバーの環境変数 \`AGENTGUARD_KEY\` に入れる（取り出し方は下の「キーの取り出し方」。ユーザーに確認してから）。${oldNext}`;
+}
+
+function aiPublishStep(o: KitOptions, service: string, region: string): string {
+  const moveOut = `1. \`${KIT_DIR}/\` をサイトのフォルダの外へ移す（ユーザーに確認して。キーが入っている）。`;
+  if (o.host === "vercel") {
+    return `${moveOut}
+2. 置いたプログラムと、書き足したファイルだけを add して、コミットする（\`.agentguard\` は自動で除外される。\`git add -f\` はしない）：
+   \`\`\`bash
+   git add <置いたプログラム> <書き足したファイル>
+   git commit -m "AgentGuard を追加"
+   \`\`\`
+3. Vercel がデプロイするブランチ（ふつうは \`main\`。Vercel のプロジェクト →「Settings」→「Git」で分かる）に push する：\`git push\`
+4. Vercel の「Deployments」で、新しいデプロイが「Ready」になるのを待つ（CLI があれば \`npx vercel ls\` でも見られる）。`;
+  }
+  if (o.host === "cloudrun") {
+    return `${moveOut}
+2. プロジェクトが合っているか：\`gcloud config get-value project\`（分からなければユーザーに確認）
+3. アップロードされるファイルに \`.agentguard/.settings\` が入っていて、\`${KIT_DIR}\` が入っていないか：
+   \`\`\`bash
+   gcloud meta list-files-for-upload .
+   \`\`\`
+4. 公開する：
+   \`\`\`bash
+   gcloud run deploy ${service} --source . --region ${region}
+   \`\`\`
+5. GitHub も使っているなら、置いたプログラムと書き足したファイルをコミットして push しておく（\`.agentguard\` は自動で除外される）。`;
+  }
+  return `${moveOut}
+2. 自分の PC：動いているサーバーを止めて、いつもの方法で起動しなおす（例：\`${LOCAL_START[o.kind]}\`）。
+3. ほかのサーバー：いつもの方法で、プログラムと \`.agentguard/\` も上げて、再起動する。
+4. GitHub も使っているなら、置いたプログラムと書き足したファイルをコミットして push する。`;
+}
+
+export function aiSetupMd(o: KitOptions): string {
+  const i = INSTALL[o.kind];
+  const run = cloudRunService(o.siteHost);
+  const service = run?.service ?? "<サービス名>";
+  const region = run?.region ?? "<リージョン>";
+  const base = o.basePath ?? "";
+  const origin = new URL(o.siteUrl).origin;
+  const verify = `${base}/.well-known/agentguard-verify.txt`;
+  const port = o.kind === "fastapi" ? "8000" : "3000";
+  const steps = aiSteps(o);
+  const hostLabel = HOSTS.find((h) => h.id === o.host)!.label + (o.host === "cloudrun" ? `（サービス \`${service}\`・リージョン \`${region}\`）` : "");
+  const keyPath = o.kind === "next" ? ".agentguard/.settings" : "<置いたフォルダ>/.agentguard/.settings";
+  return `# AgentGuard につなぐ作業の指示書（Claude Code など AI アシスタント向け）
+
+> **人が読むところ**
+> 1. この \`${KIT_DIR}\` フォルダを、サイトのフォルダ（\`${o.kind === "fastapi" ? "main.py" : "package.json"}\` があるフォルダ）の中に置きます。
+> 2. そのフォルダで Claude Code を開いて、次のように頼みます。
+>
+>    「${AI_PROMPT}」
+>
+> 3. GitHub に送る（push）・公開する（デプロイ）前に、Claude Code が確認を聞いてきます。内容を見て OK してください。
+
+---
+
+以下は Claude Code への指示です。
+${o.key === null ? `
+> **このセットには接続キーが入っていません。** 作業を始めずに、ユーザーに「AgentGuard の『守るサイト』の画面で『キーをなくした・作り直す』を押してから、フォルダをダウンロードしなおしてください」と伝えて止まる。
+` : ""}
+## 目的
+
+このリポジトリのサイトを AgentGuard（WAF と AI エージェントでサイトを守るサービス）につなぐ。サイトの処理より先に動くプログラムを1つ置き、届いたアクセスを AgentGuard に検査させる。攻撃と判断されたアクセスは 403 で止まり、サイトのコードには届かない。
+
+| 項目 | 値 |
+|---|---|
+| 守るサイト | ${o.siteUrl} |
+| サイトの種類 | ${KIND_LABEL[o.kind]} |
+| 公開しているところ | ${hostLabel} |
+| 置くプログラム | \`${KIT_DIR}/files_for_your_site/${i.fileName}\` |
+| キーを保存したフォルダ | \`${KIT_DIR}/files_for_your_site/.agentguard/\` |
+| AgentGuard の画面 | ${o.dashboardUrl}/app/site |
+| 確認用のパス | \`${verify}\` |
+
+## 必ず守ること
+
+1. **接続キーを表示しない。** \`.agentguard/.settings\`、\`${VERCEL_FILE}\`、\`READ_ME_FIRST.html\` の中身を cat などで表示したり、ログ・チャット・コミットメッセージ・コードに書いたりしない。キーが必要なときは、下の「キーの取り出し方」のように、表示せずにコマンドへ直接渡す。
+2. **\`.agentguard/\` を git に入れない。** 中の \`.gitignore\`（中身は \`*\`）が防いでいる。このファイルを消さない。\`git add -f\` を使わない。
+3. **プログラムの中身を書きかえない。** 例外は、Next.js のバージョンに合わせた名前の変更と設定の追加、すでにある proxy / middleware と1つにまとめるときだけ。
+4. **攻撃のテストをしない。** 攻撃の形をした文字列を、このサイトにもほかのサイトにも送らない。確かめるのはふつうのアクセスだけ。AI チームの動きは、AgentGuard の画面の「攻撃シミュレーター」で見られる（本物のサイトには何も送らない）。
+5. **外に出る操作の前に、ユーザーに確認する。** git push、デプロイ、環境変数の変更など。
+6. **公開の前に、\`${KIT_DIR}/\` をサイトのフォルダの外へ移す**（ユーザーに確認して）。このフォルダにもキーが入っている。git には入らない（フォルダの中の \`.gitignore\`）が、\`gcloud run deploy --source .\` などではいっしょにアップロードされてしまう。
+
+## このプログラムがすること（ユーザーに説明するとき用）
+
+- サイトに届いたリクエストごとに、メソッド・パス・クエリ・フォームや JSON の中身・User-Agent・Referer・接続元 IP を、AgentGuard に HTTPS で送る。答えが \`block\` なら 403 を返す。パスワードやトークンらしい欄は、伏せ字にして送る（攻撃の形をした値だけは、検査のためそのまま送る）。
+- AgentGuard に 2 秒以内に確認できないときは、サイトを止めないように、そのまま通す（環境変数 \`AGENTGUARD_FAIL_CLOSED=true\` なら、503 で止める）。
+- \`${verify}?challenge=…\` には、キーから作った HMAC の答え（64 文字の 16 進数）を返す。キーそのものは外に出ない。AgentGuard はこれで「このサイトの持ち主がつないだ」ことを確かめる。
+- \`/.agentguard\` と \`/${KIT_DIR}\` を含むパスには、いつも 404 を返す。
+- キーは、環境変数 \`AGENTGUARD_KEY\` があればそれを、なければ \`.agentguard/.settings\` を使う。
+
+## 手順
+
+### 1. 前もって確かめる
+
+- git の中か：\`git rev-parse --is-inside-work-tree\`。\`git status --short\` で、ほかの変更がないかも見る（あればユーザーに伝える）。
+- サイトの種類が本当に ${KIND_LABEL[o.kind]} か（${steps.check}）。ちがうときは作業を止めて、ユーザーに「AgentGuard の画面のステップ1で種類を選びなおして、フォルダをダウンロードしなおしてください」と伝える。
+- ${steps.prereq}
+- すでに AgentGuard のコードが入っていないか（前に手で入れた \`AGENTGUARD_KEY\` を読むコードや、\`agentguard-verify\` のルートなど）：
+  \`\`\`bash
+  grep -rn -e AGENTGUARD -e agentguard-verify . --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=.git --exclude-dir=${KIT_DIR}
+  \`\`\`
+  見つかったら、守る処理が2重にならないように、ユーザーに確認してから古いほうを外して、この新しいファイル1つにまとめる。
+
+### 2. ファイルを置く
+
+${steps.place}
+
+### 3. 書き足す
+
+${steps.add}
+
+### 4. 接続キー
+
+${aiKeyStep(o, service, region)}
+
+### 5. 手元で確かめる
+
+1. 環境変数 \`AGENTGUARD_KEY\` を設定しないで、いつもの方法で起動する（保存したキーが読めることを確かめるため）。例：\`${LOCAL_START[o.kind]}\`（このプロジェクトの起動方法がちがえば、それに合わせる）。下の \`${port}\` は、このサイトのポートに合わせる。
+2. 確認用の答え（64 文字の 16 進数が返れば、プログラムが動いていて、キーも読めている）：
+   \`\`\`bash
+   curl -s "http://localhost:${port}${verify}?challenge=check"
+   \`\`\`
+3. キーのフォルダが外から見えないか（404 ならよい）：
+   \`\`\`bash
+   curl -s -o /dev/null -w "%{http_code}\\n" "http://localhost:${port}/.agentguard/.settings"
+   \`\`\`
+4. ふつうのページ（今までと同じ結果ならよい）：
+   \`\`\`bash
+   curl -s -o /dev/null -w "%{http_code}\\n" "http://localhost:${port}${base}/"
+   \`\`\`
+5. git に入らないか（\`git status\` に \`.agentguard\` と \`${KIT_DIR}\` が出ず、\`check-ignore\` が \`.agentguard/.gitignore\` を理由に出せばよい）：
+   \`\`\`bash
+   git status --short
+   git check-ignore -v ${keyPath}
+   \`\`\`
+6. 確かめ終わったら、起動したサーバーを止める。
+
+4 のアクセスで AgentGuard に最初の報告が届き、AgentGuard の画面が「つながりました」に変わることがある。まだ公開していないので、「あなたのサイトだと確かめられませんでした」と出てもよい（手順7のあとで「もう一度確かめる」を押せばよい）。
+
+### 6. 公開する（ユーザーの確認のあと）
+
+${aiPublishStep(o, service, region)}
+
+### 7. 公開したあとに確かめる
+
+\`\`\`bash
+# 64 文字の 16 進数が返ればよい
+curl -s "${origin}${verify}?challenge=check"
+# 404 ならよい
+curl -s -o /dev/null -w "%{http_code}\\n" "${origin}/.agentguard/.settings"
+# 今までと同じ（200 など）ならよい
+curl -s -o /dev/null -w "%{http_code}\\n" "${o.siteUrl}"
+\`\`\`
+
+そのあと、ユーザーに AgentGuard の画面（${o.dashboardUrl}/app/site）を開いてもらい、「つながりました」になったか見てもらう。「あなたのサイトだと確かめられませんでした」と出ていたら、「もう一度確かめる」を押してもらう。
+
+## キーの取り出し方（環境変数に入れるときだけ）
+
+\`.agentguard/.settings\` のキーは、見ただけでは分からない形（固定の文字列 \`agentguard\` との XOR を base64 にしたもの）で保存してある。環境変数に入れるときは、**表示せずに**、取り出した結果をそのままコマンドに渡す（bash。\`.agentguard\` があるフォルダで実行）。
+
+- Node.js：
+  \`\`\`bash
+  ${DECODE_NODE}
+  \`\`\`
+- Python：
+  \`\`\`bash
+  ${DECODE_PY}
+  \`\`\`
+- 使い方の例：\`--update-env-vars "AGENTGUARD_KEY=$(上のコマンド)"\`。この結果を echo したり、ファイルに保存したりしない。
+
+## うまくいかないとき
+
+| 症状 | 見るところ |
+|---|---|
+| 確認用のパスで、サイトのページや 404 が返る | プログラムが動いていない。Next.js：ファイルの場所（\`src\` の有無）・名前（バージョン）・\`config.matcher\`。Express：書き足した行が、ルートや \`express.static\` より上にあるか。FastAPI：\`protect(app)\` を、実際に動く \`app\` に呼んでいるか。 |
+| 手元では 64 文字が返るのに、公開したあとは返らない | プログラムかキーが、公開先に届いていない。Vercel：環境変数 \`AGENTGUARD_KEY\` を入れたあとにデプロイしたか。Cloud Run：\`gcloud meta list-files-for-upload .\` に \`.agentguard/.settings\` があるか、\`Dockerfile\` の \`COPY\` と \`.dockerignore\`。 |
+| ページに「安全のため、一時的にアクセスを止めています」と出る | \`AGENTGUARD_FAIL_CLOSED=true\` が設定されていて、AgentGuard に確認できていない（キーがちがう・通信できない）。 |
+| ふつうのページに「AgentGuard がこのアクセスを止めました」と出る | 誤検知の可能性。プログラムを外したり書きかえたりせず、止まった URL と時刻をユーザーに伝える。 |
+| キーを作り直した | 古いキーはもう使えない。ユーザーにフォルダをダウンロードしなおしてもらい、\`.agentguard/\` を入れかえる（環境変数にも入れていたら、それも入れかえる）。 |
+
+## 終わったら、ユーザーに報告すること
+
+- 置いたファイルと、書き足した行（ファイル名と場所）
+- 手順5と手順7の結果（通ったもの・通らなかったもの）
+- ユーザーにやってもらうこと（例：Vercel の環境変数、AgentGuard の画面で「つながりました」になったかの確認、\`${KIT_DIR}/\` の保管か削除）
+`;
+}
+
 /** The saved-key folder: the key, and a .gitignore so git never sends the folder anywhere. */
 function savedKeyFiles(dir: string, key: string): { path: string; text: string }[] {
   return [
@@ -431,12 +730,14 @@ function savedKeyFiles(dir: string, key: string): { path: string; text: string }
 }
 
 export function buildSetupKit(o: KitOptions): { name: string; files: { path: string; text: string }[] } {
-  const root = "agentguard-setup";
+  const root = KIT_DIR;
   const site = `${root}/files_for_your_site`;
   return {
-    name: `agentguard-setup-${o.siteHost.split(".")[0]}.zip`,
+    name: `${KIT_DIR}-${o.siteHost.split(".")[0]}.zip`,
     files: [
       { path: `${root}/READ_ME_FIRST.html`, text: guideHtml(o) },
+      { path: `${root}/${AI_GUIDE}`, text: aiSetupMd(o) },
+      { path: `${root}/.gitignore`, text: "# AgentGuard の設定セットです（キーが入っています）。GitHub などに送らない設定です。\n*\n" },
       { path: `${site}/${INSTALL[o.kind].fileName}`, text: o.snippet },
       ...(o.key !== null ? savedKeyFiles(site, o.key) : []),
       ...(o.key !== null && o.host === "vercel" ? [{ path: `${root}/${VERCEL_FILE}`, text: vercelKeyText(o.key) }] : []),

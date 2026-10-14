@@ -7,7 +7,7 @@
  * The key comes from the environment variable AGENTGUARD_KEY, or else from the saved-key folder of
  * the setup kit (.agentguard/.settings, see encodeSavedKey). That folder carries its own .gitignore,
  * so it goes along when the site is deployed from its folder but is never pushed to GitHub, and the
- * code answers 404 for it so it is never served to visitors.
+ * code answers 404 for it (and for the kit folder) so it is never served to visitors.
  * Values of secret-looking fields are masked before they leave the site, except when the value
  * itself looks like an attack (a login form's password box is a classic injection point).
  * Must stay in sync with deriveVerifySecret() in src/lib/server/site.ts.
@@ -21,6 +21,8 @@ const VERIFY = "/.well-known/agentguard-verify.txt";
 
 /** The saved-key folder of the setup kit, as placed next to the site's code. */
 export const SAVED_DIR = ".agentguard";
+/** The setup kit's own folder (it holds the key too): also never served, in case it is left in the site. */
+export const KIT_DIR = "agentguard-setup";
 export const SAVED_FILE = ".settings"; // a dot name: static file servers skip it by default
 const PAD = "agentguard";
 
@@ -48,7 +50,8 @@ export function integrationSnippet(fw: ServerFramework, ingestUrl: string, baseP
     return `// AgentGuard とつなぐファイル（Next.js）
 // 1) このファイル（proxy.ts）と .agentguard フォルダを、package.json と同じフォルダに置く
 //    （src フォルダを使っているなら、proxy.ts だけ src の中に置く）
-//    ※ Next.js 15 より前は、ファイル名を middleware.ts にしてください
+//    ※ Next.js 15 以前は、ファイル名を middleware.ts にして、キーは秘密の設定（環境変数）AGENTGUARD_KEY にも入れてください
+//      （このバージョンでは、保存したキーのフォルダを読めないため）
 // 2) 接続キーは .agentguard フォルダに保存してあります（このフォルダは GitHub には送られません）。
 //    Vercel のように GitHub から公開するときだけ、秘密の設定（環境変数）AGENTGUARD_KEY にもキーを入れます。
 // これだけで、あなたのサイトかどうかの確認と、守ることの両方が動きます。中身を書きかえる必要はありません。
@@ -113,8 +116,8 @@ async function bodyOf(request: NextRequest): Promise<{ body: string; type: strin
 
 export default async function agentguard(request: NextRequest) {
   const url = request.nextUrl;
-  // キーを保存したフォルダは、サイトを見る人には絶対に見せません
-  if (url.pathname.includes("/${SAVED_DIR}")) return new Response("Not Found", { status: 404 });
+  // キーを保存したフォルダと、設定セットのフォルダは、サイトを見る人には絶対に見せません
+  if (url.pathname.includes("/${SAVED_DIR}") || url.pathname.includes("/${KIT_DIR}")) return new Response("Not Found", { status: 404 });
   const key = process.env.AGENTGUARD_KEY || SAVED_KEY;
   if (!key) return NextResponse.next();
   if (url.pathname === AGENTGUARD_VERIFY_PATH) {
@@ -190,8 +193,8 @@ const SAVED_KEY = savedKey();
 
 module.exports = function agentguard(app) {
   app.use(async (req, res, next) => {
-    // キーを保存したフォルダは、サイトを見る人には絶対に見せません
-    if (req.path.includes("/${SAVED_DIR}")) return res.status(404).type("text/plain").send("Not Found");
+    // キーを保存したフォルダと、設定セットのフォルダは、サイトを見る人には絶対に見せません
+    if (req.path.includes("/${SAVED_DIR}") || req.path.includes("/${KIT_DIR}")) return res.status(404).type("text/plain").send("Not Found");
     const key = process.env.AGENTGUARD_KEY || SAVED_KEY;
     if (!key) return next();
     if (req.path === AGENTGUARD_VERIFY_PATH) {
@@ -305,8 +308,8 @@ async def body_of(request):
 def protect(app):
     @app.middleware("http")
     async def agentguard(request, call_next):
-        # キーを保存したフォルダは、サイトを見る人には絶対に見せません
-        if "/${SAVED_DIR}" in request.url.path:
+        # キーを保存したフォルダと、設定セットのフォルダは、サイトを見る人には絶対に見せません
+        if "/${SAVED_DIR}" in request.url.path or "/${KIT_DIR}" in request.url.path:
             return PlainTextResponse("Not Found", status_code=404)
         key = os.environ.get("AGENTGUARD_KEY") or SAVED_KEY
         if not key:
