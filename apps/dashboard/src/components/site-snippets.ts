@@ -279,7 +279,7 @@ export const INSTALL: Record<ServerFramework, {
     place: "server.js（または app.js）と同じフォルダ",
     tree: "あなたのサイトのフォルダ/\n├─ package.json\n├─ server.js       ← ここに1行足す\n└─ agentguard.cjs  ← ここに置く（新しいファイル）",
     addLines: 'require("./agentguard.cjs")(app);',
-    addWhere: "server.js の app.use(express.json()) のすぐ下（app.get などのルートより前）",
+    addWhere: "server.js の中の「app.use(express.json());」と書いてある行のすぐ下（app.get などより上）",
     context: 'const app = express();\napp.use(express.json());\nrequire("./agentguard.cjs")(app);   // ← この1行を足す\n\napp.get("/", (req, res) => { ... });',
   },
   fastapi: {
@@ -287,7 +287,7 @@ export const INSTALL: Record<ServerFramework, {
     place: "main.py と同じフォルダ",
     tree: "あなたのサイトのフォルダ/\n├─ requirements.txt\n├─ main.py         ← ここに2行足す\n└─ agentguard.py   ← ここに置く（新しいファイル）",
     addLines: "from agentguard import protect\nprotect(app)",
-    addWhere: "main.py の app = FastAPI() のすぐ下",
+    addWhere: "main.py の中の「app = FastAPI()」と書いてある行のすぐ下",
     context: "app = FastAPI()\nfrom agentguard import protect   # ← この2行を足す\nprotect(app)\n\n@app.get(\"/\")\ndef home(): ...",
   },
 };

@@ -78,7 +78,7 @@ function VerifiedPanel({ site, keyHint, connectionKey, verifiedMode, onRotate }:
   const staticSite = isGitHubPages(site.host);
 
   async function remove() {
-    if (!window.confirm(`${site.host} の保護をやめますか？接続キーは無効になります。`)) return;
+    if (!window.confirm(`${site.host} を守るのをやめますか？接続キーは使えなくなります。`)) return;
     setBusy(true);
     try { await api("/api/site", { body: { action: "remove" } }); }
     finally { setBusy(false); }
@@ -88,28 +88,28 @@ function VerifiedPanel({ site, keyHint, connectionKey, verifiedMode, onRotate }:
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <a href={site.url} target="_blank" rel="noreferrer" className="break-all font-mono text-sm text-brand hover:underline">{site.url}</a>
-        <Badge tone="safe">所有確認済み</Badge>
+        <Badge tone="safe">あなたのサイトと確認ずみ</Badge>
       </div>
       {verifiedMode === "public" && (
         <p className="rounded-xl bg-warn/10 px-3 py-2 text-xs text-amber-800">
-          <b>合言葉のファイルは今も外から見える状態です。</b>確認は済んだので、もう消してください（悪用はできませんが、AgentGuard を使っていることが分かってしまいます）。
+          <b>確認用のファイルが、いまも外から見える状態です。</b>確認は終わったので、もう消してください（悪いことには使えませんが、AgentGuard を使っていることが分かってしまいます）。
         </p>
       )}
       {staticSite ? (
         <p className="rounded-xl bg-warn/10 px-3 py-2 text-xs text-amber-800">
-          GitHub Pages は、サーバーで動くプログラムを置けないため、組み込みコードを動かせません。
-          所有確認は済んでいますが、攻撃を検査して守るには、Node.js や Python などサーバーで動くサイトが必要です。
+          GitHub Pages では、サイトの中でプログラムを動かせないため、AgentGuard とつなぐファイルが動きません。
+          あなたのサイトだという確認は終わっていますが、攻撃を見張って守るには、Node.js や Python などでプログラムが動くサイトである必要があります。
         </p>
       ) : (
         <>
           <ConnectionStatus />
           <p className="text-xs text-muted">
-            サイトに届くアクセスは1件ずつ AgentGuard が検査し、攻撃はその場で止めて、このダッシュボードに表示します。
-            AgentGuard に届かないときは、サイトを止めずにそのまま通します。
+            サイトに届くアクセスを、AgentGuard が1件ずつ見張っています。攻撃はその場で止めて、この画面に表示します。
+            AgentGuard と連絡がとれないときは、サイトが止まらないように、そのまま通します。
           </p>
           {connectionKey && <KeyBox connectionKey={connectionKey} keyHint={keyHint} onRotate={onRotate} />}
           <details className="rounded-2xl border border-line p-3 text-xs">
-            <summary className="cursor-pointer font-semibold text-brand">接続キー・組み込みコードをもう一度見る</summary>
+            <summary className="cursor-pointer font-semibold text-brand">接続キーと、つなぐためのファイルをもう一度見る</summary>
             <div className="mt-3 space-y-3">
               {!connectionKey && <KeyBox connectionKey={null} keyHint={keyHint} onRotate={onRotate} />}
               <IntegrationCode framework={framework} onFramework={setFramework} basePath={site.path ?? ""} />
@@ -117,7 +117,7 @@ function VerifiedPanel({ site, keyHint, connectionKey, verifiedMode, onRotate }:
           </details>
         </>
       )}
-      <Button variant="ghost" disabled={busy} onClick={remove}><Trash2 size={14} /> 保護をやめる / 別のサイトに変更</Button>
+      <Button variant="ghost" disabled={busy} onClick={remove}><Trash2 size={14} /> 守るのをやめる・別のサイトに変える</Button>
     </div>
   );
 }
@@ -144,7 +144,7 @@ export function SiteCard() {
   return (
     <Card>
       <CardHeader title="守るサイト" icon={<Globe size={16} className="text-brand" />}
-                  sub="あなたのサイトを登録して守ります（所有確認が必要・1つまで）" />
+                  sub="あなたのサイトを登録して守ります（1つまで）" />
       <div className="p-5">
         {!site ? (
           <RegisterForm onRegistered={setConnectionKey} />

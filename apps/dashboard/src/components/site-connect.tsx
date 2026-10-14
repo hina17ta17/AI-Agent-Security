@@ -20,7 +20,7 @@ export function KeyBox({ connectionKey, keyHint, onRotate }: {
   const [error, setError] = useState<string | null>(null);
 
   async function rotate() {
-    if (keyHint && !window.confirm("今の接続キーは使えなくなります。新しいキーを作りますか？（サイトの AGENTGUARD_KEY も入れ替えが必要です）")) return;
+    if (keyHint && !window.confirm("いまの接続キーは使えなくなります。新しいキーを作りますか？（サイトの秘密の設定に入れたキーも、新しいキーに入れかえる必要があります）")) return;
     setBusy(true);
     setError(null);
     try { await onRotate(); } catch (e) { setError(e instanceof Error ? e.message : "作り直せませんでした"); } finally { setBusy(false); }
@@ -30,12 +30,12 @@ export function KeyBox({ connectionKey, keyHint, onRotate }: {
     return (
       <div className="rounded-2xl border border-warn/40 bg-warn/10 p-3">
         <p className="flex items-center gap-1.5 text-xs font-bold text-amber-700">
-          <KeyRound size={14} /> 接続キー（この画面を離れると二度と表示されません）
+          <KeyRound size={14} /> 接続キー（この画面を閉じると、もう見られません。いまコピーしてください）
         </p>
-        <p className="mt-1 text-xs text-muted">サイトの環境変数 <code className="font-mono">AGENTGUARD_KEY</code> に、そのまま貼り付けます。</p>
+        <p className="mt-1 text-xs text-muted">このキーを、サイトの秘密の設定（環境変数）に <code className="font-mono">AGENTGUARD_KEY</code> という名前で入れます。</p>
         <div className="mt-2"><CopyField value={connectionKey} label="接続キー" /></div>
         <p className="mt-2 text-[11px] text-muted">
-          <b className="text-ink">接続キーは秘密です。</b>HTML・公開リポジトリ・ブラウザで動くコードには書かず、サーバーの環境変数にだけ置いてください。
+          <b className="text-ink">接続キーは、人に見せてはいけない合言葉です。</b>サイトのファイルの中には書かずに、秘密の設定にだけ入れてください。
         </p>
       </div>
     );
@@ -43,10 +43,10 @@ export function KeyBox({ connectionKey, keyHint, onRotate }: {
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line p-3 text-xs text-muted">
       <KeyRound size={14} />
-      {keyHint ? <>接続キー：<code className="font-mono">agk_…{keyHint}</code>（表示は発行したときの1回だけです）</> : <>接続キーがまだありません。</>}
+      {keyHint ? <>接続キー：<code className="font-mono">agk_…{keyHint}</code>（キーの全部が見られるのは、作ったときの1回だけです）</> : <>接続キーがまだありません。</>}
       <div className="flex-1" />
       <Button size="sm" variant="ghost" disabled={busy} onClick={rotate}>
-        <RefreshCw size={13} /> {keyHint ? "キーをなくした・作り直す" : "接続キーを発行する"}
+        <RefreshCw size={13} /> {keyHint ? "キーをなくした・作り直す" : "接続キーを作る"}
       </Button>
       {error && <p className="w-full text-rose-600">{error}</p>}
     </div>
@@ -76,12 +76,12 @@ export function IntegrationCode({ framework, onFramework, basePath }: {
         ))}
       </div>
       <p className="text-xs text-muted">
-        ファイル名：<b className="font-mono text-ink">{INSTALL[framework].fileName}</b>（{INSTALL[framework].place}に置く）
-        {INSTALL[framework].addLines && <>。{INSTALL[framework].addWhere}に <code className="font-mono">{INSTALL[framework].addLines.replace("\n", " / ")}</code> を足す</>}
+        ファイルの名前：<b className="font-mono text-ink">{INSTALL[framework].fileName}</b>（{INSTALL[framework].place}に置きます）
+        {INSTALL[framework].addLines && <>。{INSTALL[framework].addWhere}に <code className="font-mono">{INSTALL[framework].addLines.replace("\n", " / ")}</code> を書き足します</>}
       </p>
       <CopyField value={integrationSnippet(framework, ingestUrl, basePath)} label="組み込みコード" />
       <details className="text-xs text-muted">
-        <summary className="cursor-pointer font-semibold text-brand">環境変数 AGENTGUARD_KEY の設定場所</summary>
+        <summary className="cursor-pointer font-semibold text-brand">接続キー（AGENTGUARD_KEY）を入れる場所</summary>
         <ul className="mt-1 list-disc space-y-1 pl-5">
           {KEY_PLACES.map((p) => <li key={p.name}><b className="text-ink">{p.name}</b>：{p.how}</li>)}
         </ul>

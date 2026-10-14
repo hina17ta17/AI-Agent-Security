@@ -15,33 +15,37 @@ import { INSTALL, type ServerFramework } from "./site-snippets";
 
 export type Host = "vercel" | "cloudrun" | "other";
 
-export const HOSTS: { id: Host; label: string; steps: string[]; publish: string }[] = [
+/*
+ * Wording: short sentences, everyday words. A technical word is used only with its meaning beside it
+ * the first time: 秘密の設定（環境変数）, GitHub に送る（push）, リポジトリ（サイトのファイルの保管場所）.
+ */
+
+/** Putting the connection key into the site's secret settings, per hosting service. */
+export const HOSTS: { id: Host; label: string; keySteps: string[]; keyNote: string }[] = [
   {
     id: "vercel", label: "Vercel",
-    steps: [
-      "vercel.com にログインし、このサイトのプロジェクトをクリック",
-      "上のメニューの「Settings」→ 左の「Environment Variables」",
-      "Key に AGENTGUARD_KEY、Value に接続キーを貼って「Save」",
+    keySteps: [
+      "vercel.com を開いてログインし、このサイトのプロジェクトをクリックします。",
+      "上のメニューの「Settings」を押し、左のメニューから「Environment Variables」を選びます。",
+      "「Key」に AGENTGUARD_KEY、「Value」に接続キー（agk_ ではじまる文字）を貼り、「Save」を押します。",
     ],
-    publish: "GitHub に push する（自動で公開し直されます）。push しない場合は Vercel の「Deployments」→ 一番上の「…」→「Redeploy」",
+    keyNote: "ここで入れたキーは、次にサイトを更新したときから使われます（更新は最後の手順でします）。",
   },
   {
     id: "cloudrun", label: "Cloud Run",
-    steps: [
-      "Google Cloud コンソールで Cloud Run のサービスを開く",
-      "「新しいリビジョンの編集とデプロイ」→「変数とシークレット」",
-      "「変数を追加」で 名前 AGENTGUARD_KEY、値 に接続キーを貼って「デプロイ」",
+    keySteps: [
+      "「Cloud Shell を開く」を押します。Google Cloud の画面の下に、文字を打ちこむ黒い画面が出てきます（サイトのプロジェクトが選ばれているか確認してください）。",
+      "下の1行をコピーして、その黒い画面に貼り付け、Enter キーを押します。1〜2分で終わります。",
     ],
-    publish: "いつもの方法でデプロイし直す（例：gcloud run deploy サービス名 --source .）",
+    keyNote: "この1行で、キーが入ったうえでサイトも自動で更新されます。",
   },
   {
     id: "other", label: "それ以外・自分のPC",
-    steps: [
-      "サイトのフォルダに、環境変数のファイルを作る（ファイル名は下の「自分のPCで動かす場合」）",
-      "接続キーの1行（AGENTGUARD_KEY=…）を貼り付けて保存",
-      "このファイルは GitHub などに公開しないでください",
+    keySteps: [
+      "サイトのフォルダに、新しいファイルを1つ作ります（ファイル名は下に書いてあります）。",
+      "接続キーの1行（AGENTGUARD_KEY=… ではじまる行）をコピーして、そのファイルに貼り付け、保存します。",
     ],
-    publish: "サーバーを再起動する（止めて、もう一度起動する）",
+    keyNote: "このファイルは GitHub などに上げないでください。.gitignore というファイルにこのファイル名を書いておくと、うっかり上げるのを防げます。",
   },
 ];
 
@@ -49,11 +53,86 @@ export const HOSTS: { id: Host; label: string; steps: string[]; publish: string 
  * On your own PC the key goes in a file, but only Next.js reads such a file by itself: Express and
  * FastAPI must be started with the file named, or the key never reaches the code.
  */
-export const LOCAL_ENV: Record<ServerFramework, { file: string; start: string }> = {
-  next: { file: ".env.local", start: "いつもどおり npm run dev（または npm start）でOK。Next.js は .env.local を自動で読みます" },
-  express: { file: ".env", start: "node --env-file=.env server.js で起動する（Node.js 20.6 以降。dotenv を使っているなら、いつもどおりでOK）" },
-  fastapi: { file: ".env", start: "uvicorn main:app --env-file .env で起動する" },
+export const LOCAL_ENV: Record<ServerFramework, { file: string; command: string; note: string }> = {
+  next: { file: ".env.local", command: "npm run dev", note: "Next.js は .env.local を自分で読みこむので、起動のしかたはいつもどおりで大丈夫です。" },
+  express: { file: ".env", command: "node --env-file=.env server.js",
+             note: "Express は、ファイルを置いただけではキーを読みこみません。この書き方で起動してください（Node.js 20.6 以降。dotenv を使っているなら、いつもどおりで大丈夫です）。" },
+  fastapi: { file: ".env", command: "uvicorn main:app --env-file .env",
+             note: "FastAPI は、ファイルを置いただけではキーを読みこみません。この書き方で起動してください。" },
 };
+
+/** One way of updating the site (GitHub Desktop, VS Code, commands …). */
+export type PublishWay = { name: string; steps: string[]; code?: string };
+
+/**
+ * Updating the site so the new file and the key take effect ("where do I push?"), per hosting.
+ * `where` says what is updated; the first way is the most common one.
+ */
+export function publishGuide(host: Host, kind: ServerFramework, siteHost: string): {
+  intro: string; where: string; ways: PublishWay[]; done: string; notes: string[];
+} {
+  if (host === "vercel") {
+    return {
+      intro: "Vercel は、GitHub にあるサイトのファイルが変わると、自動でサイトを更新してくれます。なので、変えたファイルを GitHub に送る（push する）だけです。",
+      where: "送り先は、Vercel とつながっている GitHub のリポジトリ（サイトのファイルの保管場所）の main ブランチです。どのリポジトリか分からないときは、Vercel のプロジェクト →「Settings」→「Git」に書いてあります。",
+      ways: [
+        { name: "GitHub Desktop を使っている場合", steps: [
+          "GitHub Desktop を開き、左上の「Current repository」がこのサイトになっているか確認します。",
+          "左の一覧に、追加したファイル（" + INSTALL[kind].fileName + "）が出ていることを確認します。",
+          "左下の「Summary」に「AgentGuard を追加」と書き、「Commit to main」を押します。",
+          "上の「Push origin」を押します。これで GitHub に送られます。",
+        ] },
+        { name: "VS Code を使っている場合", steps: [
+          "左の、枝分かれのようなマーク（ソース管理）を押します。",
+          "上の入力欄に「AgentGuard を追加」と書き、「コミット」（✓）を押します。",
+          "「変更の同期」（または「同期」）を押します。これで GitHub に送られます。",
+        ] },
+        { name: "コマンドを使う場合", steps: ["サイトのフォルダで、次の3行を1行ずつ実行します。"],
+          code: 'git add .\ngit commit -m "AgentGuard を追加"\ngit push' },
+        { name: "GitHub を使っていない場合", steps: ["サイトのフォルダで、次の1行を実行すると更新できます。"], code: "npx vercel --prod" },
+      ],
+      done: "送ったあと、Vercel のプロジェクトの「Deployments」に新しい行が出て、1〜2分で「Ready」になれば更新は終わりです。",
+      notes: ["キーだけを入れなおしたときは、ファイルを送らなくても、「Deployments」→ いちばん上の行の「…」→「Redeploy」で更新できます。"],
+    };
+  }
+  if (host === "cloudrun") {
+    const run = cloudRunService(siteHost);
+    const service = run?.service ?? "サービス名";
+    const region = run?.region ?? "リージョン";
+    return {
+      intro: "Cloud Run は、ふつうは GitHub に送るだけでは更新されません。サイトを最初に公開したときと同じように、もう一度公開します。",
+      where: `更新するのは、Cloud Run のサービス「${service}」です。サイトのファイルがあるところ（自分のPC、または Cloud Shell）から公開します。`,
+      ways: [
+        { name: "コマンドで公開している場合（いちばん多い方法）", steps: [
+          "ターミナル（文字を打ちこむ黒い画面）を開き、cd コマンドでサイトのフォルダに移動します（例：cd Desktop/my-site）。",
+          "次の1行を実行します。数分で終わります。",
+        ], code: `gcloud run deploy ${service} --source . --region ${region}` },
+        { name: "GitHub と自動でつないでいる場合", steps: [
+          "Cloud Run を GitHub と自動でつないでいる（継続的デプロイを設定した）場合は、Vercel と同じように GitHub に送る（push する）だけで更新されます。",
+        ], code: 'git add .\ngit commit -m "AgentGuard を追加"\ngit push' },
+      ],
+      done: "「Service URL: https://…」と表示されたら、更新は終わりです。",
+      notes: ["キーは、キーの手順の1行ですでに入っています。もう一度入れる必要はありません。"],
+    };
+  }
+  const local = LOCAL_ENV[kind];
+  return {
+    intro: "自分のPCで動かしている場合は、GitHub に送る必要はありません。サイトをいちど止めて、もう一度起動するだけです。",
+    where: "更新するのは、いまサイトを動かしているターミナル（文字を打ちこむ黒い画面）です。",
+    ways: [
+      { name: "自分のPCで動かしている場合", steps: [
+        "サイトを動かしている黒い画面で、Ctrl キーを押しながら C を押して、いったん止めます。",
+        "次の1行で、もう一度起動します。",
+      ], code: local.command },
+      { name: "レンタルサーバーなど、ほかのサーバーの場合", steps: [
+        "いつもサイトのファイルを上げている方法で、AgentGuard のファイルも上げます。",
+        "キーをそのサーバーの秘密の設定（環境変数）に入れて、サイトを再起動します。分からないときは、サーバーの会社の説明を見てください。",
+      ] },
+    ],
+    done: "起動したら、ブラウザでサイトを開いてみてください。",
+    notes: [local.note],
+  };
+}
 
 // Region codes in the short form of Cloud Run URLs (service-hash-xx.a.run.app).
 const RUN_REGIONS: Record<string, string> = { an: "asia-northeast1", uc: "us-central1", ue: "us-east1", ew: "europe-west1" };
@@ -162,14 +241,14 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 function keyText(key: string | null): string {
   return key
     ? [
-        "# AgentGuard の接続キー（秘密です。人に見せない・GitHub などに上げない）",
-        "# 下の1行を、サイトの「環境変数」に入れます（入れ方は READ_ME_FIRST.html の手順3）。",
-        "# 入れ終わったら、このファイルは消してかまいません。",
+        "# AgentGuard の接続キーです（人に見せてはいけない合言葉です。GitHub などに上げないでください）",
+        "# 下の1行を、サイトの「秘密の設定（環境変数）」に入れます。入れ方は READ_ME_FIRST.html の手順3に書いてあります。",
+        "# 入れ終わったら、このファイルは消してしまって大丈夫です。",
         `AGENTGUARD_KEY=${key}`,
         "",
       ].join("\n")
     : [
-        "# 接続キーは、発行したときにだけ表示されます（このセットには入っていません）。",
+        "# 接続キーは、作ったときに1回だけ表示されるので、このセットには入っていません。",
         "# AgentGuard の「守るサイト」→ ステップ2 の「キーをなくした・作り直す」で新しいキーを出してから、",
         "# もう一度この設定セットをダウンロードしてください。",
         "AGENTGUARD_KEY=（ここに接続キー）",
@@ -177,47 +256,61 @@ function keyText(key: string | null): string {
       ].join("\n");
 }
 
-function hostSection(o: KitOptions): string {
+const list = (items: string[]) => `<ol>${items.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>`;
+
+function keySection(o: KitOptions): string {
   const local = LOCAL_ENV[o.kind];
-  const value = "AGENTGUARD_KEY.txt を開き、AGENTGUARD_KEY= の右側（agk_ で始まる部分）だけを貼ります";
-  const vercel = `<ol>${HOSTS[0].steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol><p class="muted">${esc(value)}。</p>`;
-  const cloudrun = `<p><b>いちばんかんたん：Cloud Shell に1行貼るだけ</b></p>
-    <ol><li><a href="https://console.cloud.google.com/run?cloudshell=true" target="_blank" rel="noreferrer">Cloud Shell を開く</a>（画面の下に、コマンドを打つ黒い画面が開きます。サイトのプロジェクトが選ばれていることを確認）</li>
-    <li>次の1行をコピーして貼り付け、Enter。終わると自動で公開し直されます（1〜2分）。</li></ol>
-    <pre>${esc(cloudRunCommand(o.siteHost, o.key))}</pre>
-    <p class="muted">画面でやる場合：${HOSTS[1].steps.map(esc).join(" → ")}（${esc(value)}）。</p>`;
-  const other = `<ol><li>サイトのフォルダに <code>${local.file}</code> というファイルを作る（すでにあれば開く）</li>
-    <li>AGENTGUARD_KEY.txt の最後の行（<code>AGENTGUARD_KEY=…</code>）をコピーして貼り付け、保存</li>
-    <li>${esc(local.start)}</li></ol>
-    <p class="warn"><code>${local.file}</code> は GitHub などに公開しないでください（<code>.gitignore</code> に <code>${local.file}</code> を書いておくと安心です）。</p>`;
-  const blocks: Record<Host, { title: string; body: string }> = {
-    vercel: { title: "Vercel で公開している場合", body: vercel },
-    cloudrun: { title: "Cloud Run で公開している場合", body: cloudrun },
-    other: { title: "自分のPC・そのほかの場所で動かす場合", body: other },
+  const value = "AGENTGUARD_KEY.txt を開いて、AGENTGUARD_KEY= の右側（agk_ ではじまる部分）だけをコピーして貼ります。";
+  const [vercel, cloudrun, other] = HOSTS;
+  const bodies: Record<Host, string> = {
+    vercel: `${list(vercel.keySteps)}<p class="muted">${esc(value)}</p><p class="muted">${esc(vercel.keyNote)}</p>`,
+    cloudrun: `<ol><li><a href="https://console.cloud.google.com/run?cloudshell=true" target="_blank" rel="noreferrer">Cloud Shell を開く</a>を押します。${esc(cloudrun.keySteps[0].replace("「Cloud Shell を開く」を押します。", ""))}</li><li>${esc(cloudrun.keySteps[1])}</li></ol>
+      <pre>${esc(cloudRunCommand(o.siteHost, o.key))}</pre>
+      <p class="muted">${esc(cloudrun.keyNote)}</p>
+      <p class="muted">画面でやりたい場合：Cloud Run のサービスを開く →「新しいリビジョンの編集とデプロイ」（設定を変えて更新する画面）→「変数とシークレット」→「変数を追加」で、名前に AGENTGUARD_KEY、値に接続キーを入れて →「デプロイ」。${esc(value)}</p>`,
+    other: `${list(other.keySteps)}
+      <p>作るファイルの名前：<code>${local.file}</code></p>
+      <p>起動のしかた：</p><pre>${esc(local.command)}</pre>
+      <p class="muted">${esc(local.note)}</p>
+      <p class="warn">${esc(other.keyNote)}</p>`,
   };
+  const titles: Record<Host, string> = { vercel: "Vercel で公開している場合", cloudrun: "Cloud Run で公開している場合", other: "自分のPC・そのほかで動かしている場合" };
   const order: Host[] = [o.host, ...(["vercel", "cloudrun", "other"] as Host[]).filter((h) => h !== o.host)];
   return order.map((h, i) => i === 0
-    ? `<div class="box"><h4>${blocks[h].title}（あなたのサイト）</h4>${blocks[h].body}</div>`
-    : `<details><summary>${blocks[h].title}</summary>${blocks[h].body}</details>`).join("\n");
+    ? `<div class="box"><h4>${titles[h]}（あなたのサイト）</h4>${bodies[h]}</div>`
+    : `<details><summary>${titles[h]}</summary>${bodies[h]}</details>`).join("\n");
+}
+
+function publishSection(o: KitOptions): string {
+  const g = publishGuide(o.host, o.kind, o.siteHost);
+  const way = (w: PublishWay) => `${list(w.steps)}${w.code ? `<pre>${esc(w.code)}</pre>` : ""}`;
+  return `<p>${esc(g.intro)}</p>
+    <p class="muted">${esc(g.where)}</p>
+    ${g.ways.map((w, i) => i === 0
+      ? `<div class="box"><h4>${esc(w.name)}</h4>${way(w)}</div>`
+      : `<details><summary>${esc(w.name)}</summary>${way(w)}</details>`).join("\n")}
+    <p>${esc(g.done)}</p>
+    ${g.notes.map((n) => `<p class="muted">${esc(n)}</p>`).join("")}`;
 }
 
 export function guideHtml(o: KitOptions): string {
   const i = INSTALL[o.kind];
   const host = HOSTS.find((h) => h.id === o.host)!;
+  const siteFolder = o.kind === "fastapi" ? "main.py" : "package.json";
   const step2 = i.addLines
-    ? `<p><b>${esc(i.addWhere ?? "")}</b> に、次を足して保存します。</p><pre>${esc(i.addLines)}</pre>
-       <p class="muted">足したあとは、たとえばこうなります：</p><pre>${esc(i.context ?? "")}</pre>`
-    : `<p>Next.js は、ファイルを置くだけで終わりです。<b>この手順はとばしてください。</b></p>`;
+    ? `<p>${esc(i.addWhere ?? "")}に、次の${i.addLines.includes("\n") ? "2行" : "1行"}を書き足して、保存します。</p><pre>${esc(i.addLines)}</pre>
+       <p class="muted">書き足したあとは、たとえばこんな感じになります：</p><pre>${esc(i.context ?? "")}</pre>`
+    : `<p>Next.js は、ファイルを置くだけで大丈夫です。<b>この手順はとばしてください。</b></p>`;
   const nextNotes = o.kind === "next"
-    ? `<ul class="muted"><li>サイトのフォルダに <code>src</code> フォルダがあり、その中に <code>app</code> がある場合は、<code>src</code> の中に置きます。</li>
-       <li>Next.js 15 以前は、ファイル名を <code>middleware.ts</code> に変えてください。</li>
-       <li>すでに同じ名前のファイルがある場合は、上書きせずに、サイトを作った人に相談してください（中身をまとめる必要があります）。</li></ul>`
+    ? `<ul class="muted"><li>サイトのフォルダに <code>src</code> というフォルダがあって、その中に <code>app</code> がある場合は、<code>src</code> の中に置きます。</li>
+       <li>Next.js のバージョンが15より前のときは、ファイルの名前を <code>middleware.ts</code> に変えてください。</li>
+       <li>すでに同じ名前のファイルがあるときは、上書きしないで、サイトを作った人に相談してください（2つの中身をまとめる必要があります）。</li></ul>`
     : "";
   return `<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AgentGuard 設定セット — はじめにお読みください</title>
 <style>
-  body{margin:0;background:#f6f7fb;color:#1e293b;font:15px/1.75 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif}
+  body{margin:0;background:#f6f7fb;color:#1e293b;font:15px/1.8 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif}
   main{max-width:760px;margin:0 auto;padding:24px 16px 48px}
   h1{font-size:22px;margin:0 0 4px} h2{font-size:18px;margin:28px 0 8px;padding-top:8px;border-top:1px solid #e2e8f0}
   h4{margin:0 0 6px} .muted{color:#64748b;font-size:13px} .warn{color:#92400e;background:#fef3c7;padding:8px 10px;border-radius:10px;font-size:13px}
@@ -230,61 +323,74 @@ export function guideHtml(o: KitOptions): string {
   table{border-collapse:collapse;width:100%;font-size:14px;table-layout:fixed} td,th{border-bottom:1px solid #e2e8f0;padding:8px 6px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
   li,p{overflow-wrap:anywhere}
   .n{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#4f46e5;color:#fff;font-size:14px;margin-right:6px}
+  dt{font-weight:700;margin-top:8px} dd{margin:0 0 0 1em;color:#475569;font-size:14px}
 </style></head><body><main>
 <h1>AgentGuard 設定セット</h1>
-<p class="muted">はじめにお読みください。この順番どおりに進めれば、5分ほどで終わります。</p>
+<p class="muted">はじめにお読みください。上から順番に進めれば、5分くらいで終わります。分からない言葉は、いちばん下の「ことばの説明」を見てください。</p>
 <div class="card">
   <table>
     <tr><th>守るサイト</th><td>${esc(o.siteUrl)}</td></tr>
     <tr><th>サイトの種類</th><td>${KIND_LABEL[o.kind]}</td></tr>
-    <tr><th>公開している場所</th><td>${esc(host.label)}</td></tr>
+    <tr><th>公開しているところ</th><td>${esc(host.label)}</td></tr>
   </table>
 </div>
 
-<h2>このフォルダの中身</h2>
+<h2>このフォルダに入っているもの</h2>
 <div class="card"><table>
-  <tr><th>ファイル</th><th>なに？</th><th>どこへ？</th></tr>
-  <tr><td><code>READ_ME_FIRST.html</code></td><td>この手順書</td><td>読むだけ</td></tr>
-  <tr><td><code>files_for_your_site/${i.fileName}</code></td><td>AgentGuard とつなぐプログラム</td><td><b>あなたのサイトのフォルダ</b>に入れる（手順1）</td></tr>
-  <tr><td><code>AGENTGUARD_KEY.txt</code></td><td>接続キー（秘密）</td><td>サイトの<b>環境変数</b>に入れる（手順3）。このファイル自体はサイトに入れません</td></tr>
+  <tr><th>ファイル</th><th>なに？</th><th>どうする？</th></tr>
+  <tr><td><code>READ_ME_FIRST.html</code></td><td>このページ（やり方の説明）</td><td>読むだけ</td></tr>
+  <tr><td><code>files_for_your_site/${i.fileName}</code></td><td>サイトと AgentGuard をつなぐファイル</td><td><b>あなたのサイトのフォルダ</b>に入れる（手順1）</td></tr>
+  <tr><td><code>AGENTGUARD_KEY.txt</code></td><td>接続キー（人に見せてはいけない合言葉）</td><td>サイトの<b>秘密の設定</b>に入れる（手順3）。このファイル自体は、サイトのフォルダに入れません</td></tr>
 </table></div>
 
 <h2><span class="n">1</span>ファイルを、サイトのフォルダに入れる</h2>
-<p><code>files_for_your_site</code> の中の <b><code>${i.fileName}</code></b> を、<b>${esc(i.place)}</b>にコピーします。</p>
-<p class="muted">「サイトのフォルダ」とは、${o.kind === "fastapi" ? "<code>main.py</code>" : "<code>package.json</code>"} が入っているフォルダです。VS Code などでサイトを開いたときの、いちばん上のフォルダであることが多いです。</p>
-<p>入れたあとは、こうなります：</p>
+<p><code>files_for_your_site</code> フォルダの中にある <b><code>${i.fileName}</code></b> を、<b>${esc(i.place)}</b>にコピーします。</p>
+<p class="muted">「サイトのフォルダ」とは、<code>${siteFolder}</code> というファイルが入っているフォルダのことです。VS Code などでサイトを開いたとき、いちばん上に出てくるフォルダであることが多いです。</p>
+<p>入れたあとは、こんな形になります：</p>
 <pre class="tree">${esc(i.tree)}</pre>
 ${nextNotes}
 
-<h2><span class="n">2</span>${i.addLines ? "1〜2行だけ書き足す" : "（Next.js は不要）"}</h2>
+<h2><span class="n">2</span>${i.addLines ? "1〜2行だけ書き足す" : "書き足しはありません（Next.js）"}</h2>
 ${step2}
 
-<h2><span class="n">3</span>接続キーを、サイトの環境変数に入れる</h2>
-<p>接続キーは、あなたのサイトだけが AgentGuard とつながるための合言葉です。<code>AGENTGUARD_KEY.txt</code> に入っています。</p>
-${hostSection(o)}
+<h2><span class="n">3</span>接続キーを、サイトの秘密の設定に入れる</h2>
+<p>接続キーは、あなたのサイトと AgentGuard をつなぐための合言葉です。<code>AGENTGUARD_KEY.txt</code> に入っています。これを、サイトの「秘密の設定（環境変数）」に入れます。</p>
+${keySection(o)}
 
-<h2><span class="n">4</span>公開し直して、つながったか確かめる</h2>
+<h2><span class="n">4</span>サイトを更新する（GitHub に送る・もう一度公開する）</h2>
+${publishSection(o)}
+
+<h2><span class="n">5</span>つながったか見てみる</h2>
 <ol>
-  <li>${esc(host.publish)}</li>
-  <li>公開が終わったら、<a href="${esc(o.siteUrl)}" target="_blank" rel="noreferrer">サイト</a>をブラウザで一度開く</li>
-  <li><a href="${esc(o.dashboardUrl)}/app/site" target="_blank" rel="noreferrer">AgentGuard の「守るサイト」画面</a>を見る → 自動で<b>「つながりました」</b>に変われば完了です（所有確認も自動で終わります）</li>
+  <li>更新が終わったら、<a href="${esc(o.siteUrl)}" target="_blank" rel="noreferrer">あなたのサイト</a>をブラウザで1回開きます。</li>
+  <li><a href="${esc(o.dashboardUrl)}/app/site" target="_blank" rel="noreferrer">AgentGuard の「守るサイト」の画面</a>を開きます。自動で<b>「つながりました」</b>に変われば、すべて終わりです。あなたのサイトかどうかの確認も、自動で終わります。</li>
 </ol>
 
 <h2>うまくいかないとき</h2>
 <ul>
-  <li>環境変数の名前が <code>AGENTGUARD_KEY</code>（すべて大文字）になっているか</li>
-  <li>キーを入れたあと、公開し直したか（Vercel・Cloud Run は、環境変数を変えたら公開し直しが必要）</li>
-  <li>ファイル名（<code>${i.fileName}</code>）と置き場所（${esc(i.place)}）が合っているか</li>
-  ${i.addLines ? `<li>書き足した行が、${esc(i.addWhere ?? "")}にあるか</li>` : ""}
-  <li>それでもだめなら、このフォルダをサイトを作った人に渡して見てもらってください</li>
+  <li>秘密の設定の名前が <code>AGENTGUARD_KEY</code>（すべて大文字）になっていますか？</li>
+  <li>キーを入れたあとに、サイトを更新しましたか？（Vercel と Cloud Run は、キーを入れたあとに更新しないと、キーが使われません）</li>
+  <li>ファイルの名前（<code>${i.fileName}</code>）と、置いた場所（${esc(i.place)}）は合っていますか？</li>
+  ${i.addLines ? `<li>書き足した行は、${esc(i.addWhere ?? "")}にありますか？</li>` : ""}
+  <li>それでもだめなときは、このフォルダを、サイトを作った人に渡して見てもらってください。</li>
 </ul>
 
-<h2>大事な注意</h2>
+<h2>大事なこと</h2>
 <ul>
-  <li><b>接続キーは秘密です。</b><code>AGENTGUARD_KEY.txt</code> は人に見せたり、GitHub に上げたりしないでください。環境変数に入れ終わったら消してかまいません。</li>
-  <li>キーをなくしたり、もれてしまったときは、AgentGuard の画面で「キーをなくした・作り直す」を押すと、古いキーはすぐ使えなくなります。</li>
-  <li>（任意）環境変数 <code>AGENTGUARD_FAIL_CLOSED=true</code> も足すと、AgentGuard に確認できないときもアクセスを止めます（そのぶん AgentGuard が止まるとサイトも止まります）。</li>
+  <li><b>接続キーは、人に見せてはいけない合言葉です。</b><code>AGENTGUARD_KEY.txt</code> は、人に送ったり、GitHub に上げたりしないでください。秘密の設定に入れ終わったら、消してしまって大丈夫です。</li>
+  <li>キーをなくしたときや、人に見られてしまったときは、AgentGuard の画面の「キーをなくした・作り直す」を押してください。古いキーはすぐに使えなくなります。</li>
+  <li>（使わなくても大丈夫）秘密の設定に <code>AGENTGUARD_FAIL_CLOSED=true</code> も足すと、AgentGuard と連絡がとれないときもアクセスを止めて、より安全にできます。そのかわり、AgentGuard が止まっているあいだは、サイトも見られなくなります。</li>
 </ul>
+
+<h2>ことばの説明</h2>
+<dl>
+  <dt>秘密の設定（環境変数）</dt><dd>サイトのファイルとは別に、公開しているところ（Vercel など）に保存しておく設定です。ファイルの中に書かないので、人に見られません。</dd>
+  <dt>GitHub・リポジトリ</dt><dd>GitHub は、サイトのファイルを保管しておくサービスです。1つのサイトのファイルの保管場所を「リポジトリ」と呼びます。</dd>
+  <dt>push（プッシュ）</dt><dd>自分のPCで変えたファイルを、GitHub に送ることです。Vercel は、送られたのを見て自動でサイトを更新します。</dd>
+  <dt>コミット</dt><dd>「ここまで変えました」と記録することです。push の前にします。</dd>
+  <dt>デプロイ</dt><dd>サイトを公開すること（もう一度公開して更新すること）です。</dd>
+  <dt>ターミナル・Cloud Shell</dt><dd>文字でコマンドを打ちこむ黒い画面です。Cloud Shell は、Google Cloud の画面の中で使えるターミナルです。</dd>
+</dl>
 </main></body></html>
 `;
 }
