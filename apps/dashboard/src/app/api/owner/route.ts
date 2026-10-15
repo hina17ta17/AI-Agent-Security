@@ -14,6 +14,7 @@ import { audit, tenantRef } from "@/lib/server/tenant";
  * AgentGuard's manager (one account). Everyone may ask whether they are the manager and, while no
  * manager exists, claim it with the one-time code; everything else is for the manager only and
  * acts on AgentGuard's own protection with server credentials (its account itself stays read-only).
+ * The manager also sees, read-only, how many people use AgentGuard and which sites are registered.
  */
 
 const ms = (t: unknown) => (t && typeof (t as Timestamp).toMillis === "function" ? (t as Timestamp).toMillis() : null);
@@ -65,6 +66,58 @@ async function overview(selfTenantId: string) {
   };
 }
 
+const ALIVE_MS = 15 * 60_000;
+const MAX_SITES = 300;
+
+/** Midnight in Japan time, as a Date (the dashboard's "today"). */
+function todayJst(): Date {
+  const jst = new Date(Date.now() + 9 * 3_600_000);
+  jst.setUTCHours(0, 0, 0, 0);
+  return new Date(jst.getTime() - 9 * 3_600_000);
+}
+
+/**
+ * Everyone who uses AgentGuard, as totals plus the list of registered sites: no e-mail address, no
+ * account id, no visitor data. Attacks counted are real ones (the simulator's are left out).
+ */
+async function sitesOverview(selfTenantId: string) {
+  const tenants = await db().collection("tenants")
+    .select("site", "siteLastReportAt", "siteReportKeyHint", "ingestKeyHint").get();
+  const others = tenants.docs.filter((d) => d.id !== selfTenantId);
+  const since = todayJst();
+  const now = Date.now();
+  const withSite = others.filter((d) => d.get("site")?.host).slice(0, MAX_SITES);
+  const list = await Promise.all(withSite.map(async (d) => {
+    const site = d.get("site") as { url?: string; status?: string; registeredAt?: unknown; verifiedAt?: unknown };
+    const last = ms(d.get("siteLastReportAt"));
+    const from = d.get("siteReportKeyHint") as string | undefined;
+    const current = d.get("ingestKeyHint") as string | undefined;
+    const oldKey = last !== null && !!from && !!current && from !== current;
+    const today = await d.ref.collection("incidents").where("createdAt", ">=", since).select("attack.simulated").limit(1000).get();
+    const verified = site.status === "verified";
+    return {
+      url: site.url ?? "",
+      state: !verified ? "pending" : oldKey ? "old_key" : last === null ? "waiting" : "protecting",
+      connectedNow: verified && !oldKey && last !== null && now - last < ALIVE_MS,
+      lastReportAt: last,
+      registeredAt: ms(site.registeredAt),
+      attacksToday: today.docs.filter((x) => x.get("attack.simulated") !== true).length,
+    };
+  }));
+  const order = { protecting: 0, old_key: 1, waiting: 2, pending: 3 } as const;
+  list.sort((a, b) => order[a.state as keyof typeof order] - order[b.state as keyof typeof order]
+    || (b.lastReportAt ?? 0) - (a.lastReportAt ?? 0));
+  return {
+    accounts: others.length,
+    sites: list.length,
+    protecting: list.filter((s) => s.state === "protecting").length,
+    pending: list.filter((s) => s.state !== "protecting").length,
+    connectedNow: list.filter((s) => s.connectedNow).length,
+    attacksToday: list.reduce((n, s) => n + s.attacksToday, 0),
+    list,
+  };
+}
+
 async function incidentDetail(selfTenantId: string, id: unknown) {
   if (typeof id !== "string" || !/^[\w-]{6,80}$/.test(id)) throw new HttpError(400, "不明なインシデントです");
   const ref = tenantRef(selfTenantId).collection("incidents").doc(id);
@@ -100,6 +153,7 @@ export async function POST(request: Request) {
 
     const { selfTenantId } = await requireSelfOwner(request);
     if (body.action === "overview") return json(await overview(selfTenantId));
+    if (body.action === "sites") return json(await sitesOverview(selfTenantId));
     if (body.action === "incident") return json(await incidentDetail(selfTenantId, body.id));
 
     if (body.action === "unblock") {

@@ -1,6 +1,7 @@
 import { adminAuth, db } from "./admin";
 import { env } from "./env";
-import { HttpError } from "./http";
+import { HttpError, log } from "./http";
+import { recordSignIn } from "./sign-in";
 
 /**
  * requireUser for actions that change something. AgentGuard's own account (the one that receives
@@ -23,6 +24,8 @@ export async function requireEditor(request: Request): Promise<{ uid: string; au
  *
  * "Sign out everywhere" sets tenants/{uid}.sessionsValidAfter: tokens from sign-ins before that
  * moment are refused here (and by the Firestore rules), so a stolen session stops working at once.
+ * Each sign-in is also recorded here (once), so account monitoring does not depend on the dashboard
+ * reporting its own sign-ins: a sign-in used only against the API shows up and is flagged too.
  */
 export async function requireUser(request: Request): Promise<{ uid: string; authTime: number }> {
   const match = /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "");
@@ -39,6 +42,11 @@ export async function requireUser(request: Request): Promise<{ uid: string; auth
   const cutoff = (await db().collection("tenants").doc(uid).get()).get("sessionsValidAfter");
   if (typeof cutoff === "number" && authTime < cutoff) {
     throw new HttpError(401, "すべての端末からログアウトされました。もう一度ログインしてください。");
+  }
+  try {
+    await recordSignIn(uid, authTime, request);
+  } catch (e) {
+    log("WARNING", "could not record the sign-in", { error: String(e).slice(0, 200) }); // never blocks the call
   }
   return { uid, authTime };
 }

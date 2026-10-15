@@ -95,23 +95,24 @@ function queryOf(url: URL): unknown {
   return mask(q);
 }
 
-// フォームと JSON の中身も検査します（ファイルの送信などは対象外）
+// フォーム（ファイルといっしょに送るフォームも）と JSON の中身も検査します。ファイルの中身は送りません
 async function bodyOf(request: NextRequest): Promise<{ body: string; type: string }> {
   const type = request.headers.get("content-type") ?? "";
   if (request.method === "GET" || request.method === "HEAD") return { body: "", type: "" };
   try {
-    const text = await request.clone().text();
     if (type.includes("application/json")) {
+      const text = await request.clone().text();
       return { body: JSON.stringify(mask(JSON.parse(text))).slice(0, 60000), type: "application/json" };
     }
-    if (type.includes("application/x-www-form-urlencoded")) {
-      const form = [...new URLSearchParams(text)].map(([k, v]) => [k, String(mask(v, k))]);
-      return { body: new URLSearchParams(form).toString().slice(0, 60000), type: "application/x-www-form-urlencoded" };
+    if (type.includes("application/x-www-form-urlencoded") || type.includes("multipart/form-data")) {
+      const fields: [string, string][] = [];
+      (await request.clone().formData()).forEach((v, k) => { if (typeof v === "string") fields.push([k, String(mask(v, k))]); });
+      return { body: new URLSearchParams(fields).toString().slice(0, 60000), type: "application/x-www-form-urlencoded" };
     }
   } catch {
     // 読めない中身は送らない
   }
-  return { body: "", type: "" };
+  return { body: "", type: "" }; // それ以外（画像など）は、読みこまずにそのまま通します
 }
 
 export default async function agentguard(request: NextRequest) {
@@ -289,17 +290,36 @@ def client_ip(request):
     return xff.split(",")[-1].strip() if xff else (request.client.host if request.client else None)
 
 
+def multipart_fields(raw, ctype):
+    # ファイルといっしょに送るフォームから、文字の欄だけを取り出します（ファイルの中身は取り出しません）
+    m = re.search(r'boundary="?([^";]+)"?', ctype)
+    if not m:
+        return []
+    fields = []
+    for part in raw.split(b"--" + m.group(1).encode())[1:101]:
+        head, sep, value = part.partition(b"\\r\\n\\r\\n")
+        name = re.search(rb'name="([^"]*)"', head)
+        if sep and name and b"filename=" not in head:
+            fields.append((name.group(1).decode("utf-8", "replace"), value.removesuffix(b"\\r\\n").decode("utf-8", "replace")))
+    return fields
+
+
 async def body_of(request):
-    # フォームと JSON の中身も検査します（ファイルの送信などは対象外）
+    # フォーム（ファイルといっしょに送るフォームも）と JSON の中身も検査します。ファイルの中身は送りません
     if request.method in ("GET", "HEAD"):
         return "", ""
     ctype = request.headers.get("content-type", "")
-    raw = (await request.body()).decode("utf-8", "replace")
+    if not any(t in ctype for t in ("application/json", "application/x-www-form-urlencoded", "multipart/form-data")):
+        return "", ""  # それ以外（画像など）は、読みこまずにそのまま通します
+    raw = await request.body()
     try:
         if "application/json" in ctype:
-            return json.dumps(mask(json.loads(raw)), ensure_ascii=False)[:60000], "application/json"
+            return json.dumps(mask(json.loads(raw.decode("utf-8", "replace"))), ensure_ascii=False)[:60000], "application/json"
         if "application/x-www-form-urlencoded" in ctype:
-            return urlencode([(k, mask(v, k)) for k, v in parse_qsl(raw, keep_blank_values=True)])[:60000], ctype
+            pairs = parse_qsl(raw.decode("utf-8", "replace"), keep_blank_values=True)
+        else:
+            pairs = multipart_fields(raw, ctype)
+        return urlencode([(k, mask(v, k)) for k, v in pairs])[:60000], "application/x-www-form-urlencoded"
     except ValueError:
         pass  # 読めない中身は送らない
     return "", ""

@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, ChevronDown, ChevronUp, Crown, History, ListChecks, RefreshCw, ShieldCheck, Unlock } from "lucide-react";
+import { Ban, ChevronDown, ChevronUp, Crown, History, ListChecks, RefreshCw, ShieldCheck, Unlock, Users } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
@@ -8,7 +8,7 @@ import { ReportBody } from "@/components/report";
 import { SelfGuard } from "@/components/self-guard";
 import { Badge, Button, Card, CardHeader, cx, Empty } from "@/components/ui";
 import { useSession } from "@/lib/auth-context";
-import { ACTOR_LABEL, AUDIT_ACTION, AUDIT_RESULT, dateTimeJst, remaining, timeJst } from "@/lib/format";
+import { ACTOR_LABEL, ago, AUDIT_ACTION, AUDIT_RESULT, dateTimeJst, remaining, timeJst } from "@/lib/format";
 import { useNow, useOwnerStatus } from "@/lib/hooks";
 
 /**
@@ -111,6 +111,80 @@ function AllowlistEditor({ initial, onSaved }: { initial: string[]; onSaved: () 
   );
 }
 
+type SiteRow = {
+  url: string; state: "protecting" | "old_key" | "waiting" | "pending"; connectedNow: boolean;
+  lastReportAt: number | null; registeredAt: number | null; attacksToday: number;
+};
+type SitesOverview = {
+  accounts: number; sites: number; protecting: number; pending: number; connectedNow: number; attacksToday: number; list: SiteRow[];
+};
+
+const SITE_STATE: Record<SiteRow["state"], { label: string; tone: "safe" | "warn" | "muted" }> = {
+  protecting: { label: "守っている", tone: "safe" },
+  old_key: { label: "前のキーのまま", tone: "warn" },
+  waiting: { label: "合図待ち", tone: "muted" },
+  pending: { label: "つなぐ途中", tone: "muted" },
+};
+
+/** How many people use AgentGuard, and the registered sites (no e-mail addresses or account ids). */
+function SitesCard({ now }: { now: number }) {
+  const { api } = useSession();
+  const [data, setData] = useState<SitesOverview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [round, setRound] = useState(0);
+  useEffect(() => {
+    let stop = false;
+    api<SitesOverview>("/api/owner", { body: { action: "sites" } })
+      .then((d) => { if (!stop) { setData(d); setError(null); } })
+      .catch((e) => { if (!stop) setError(e instanceof Error ? e.message : "読み込めませんでした"); });
+    const t = setTimeout(() => setRound((r) => r + 1), 60_000); // refresh every minute
+    return () => { stop = true; clearTimeout(t); };
+  }, [api, round]);
+
+  const tile = (label: string, value: number, hint?: string) => (
+    <div className="rounded-2xl border border-line bg-white px-3 py-2.5">
+      <div className="text-[11px] font-semibold text-muted">{label}</div>
+      <div className="font-display text-2xl font-bold tabular-nums text-ink">{value.toLocaleString("ja-JP")}</div>
+      {hint && <div className="text-[11px] text-muted">{hint}</div>}
+    </div>
+  );
+
+  return (
+    <Card>
+      <CardHeader title="AgentGuard を使っている人（全体）" icon={<Users size={16} className="text-brand" />}
+                  sub="数と、登録されているサイトの一覧です。メールアドレスなどの個人情報は表示しません"
+                  right={<Button size="sm" variant="ghost" onClick={() => setRound((r) => r + 1)}><RefreshCw size={13} /> 更新</Button>} />
+      {error && !data ? <Empty>{error}</Empty> : !data ? <Empty>読み込み中…</Empty> : (
+        <div className="space-y-4 p-4 sm:p-5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {tile("アカウント", data.accounts)}
+            {tile("登録サイト", data.sites)}
+            {tile("守っている", data.protecting, `いまつながっている：${data.connectedNow}`)}
+            {tile("準備中", data.pending, "つなぐ途中・合図待ちなど")}
+            {tile("今日止めた攻撃", data.attacksToday, "本物のアクセスだけ")}
+          </div>
+          {data.list.length === 0 ? <Empty>まだ登録されているサイトはありません</Empty> : (
+            <ul className="space-y-2">
+              {data.list.map((s, n) => (
+                <li key={`${s.url}-${n}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-line bg-white px-3 py-2.5">
+                  <a href={s.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 break-all font-mono text-sm font-semibold text-ink hover:underline">{s.url}</a>
+                  <Badge tone={SITE_STATE[s.state].tone}>{SITE_STATE[s.state].label}</Badge>
+                  {s.connectedNow && <Badge tone="safe">つながっている</Badge>}
+                  <span className="w-full text-[11px] text-muted sm:w-auto">
+                    最後の合図：{s.lastReportAt ? ago(new Date(s.lastReportAt), now) : "まだ"}
+                    ・今日止めた攻撃：{s.attacksToday}件
+                    {s.registeredAt ? `・登録：${date(s.registeredAt)}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function Manager() {
   const { api } = useSession();
   const now = useNow(1000);
@@ -142,6 +216,7 @@ function Manager() {
     <div className="space-y-5">
       <SelfGuard />
       {error && <p className="text-sm text-rose-600">{error}</p>}
+      <SitesCard now={now} />
 
       <Card>
         <CardHeader title="AgentGuard への攻撃と対応" icon={<ListChecks size={16} className="text-brand" />}
