@@ -305,6 +305,8 @@ function OwnerCard() {
   const [code, setCode] = useState("");
   const act = useAction();
   if (!status?.available) return null;
+  // Once the manager is decided, the card (and the way to become one) is shown to the manager only.
+  if (status.claimed && !status.isOwner) return null;
   return (
     <Card>
       <CardHeader title="AgentGuard の管理者" icon={<Crown size={16} className="text-amber-500" />}
@@ -315,8 +317,6 @@ function OwnerCard() {
             <b className="text-ink">あなたが AgentGuard の管理者です。</b>
             <Link href="/app/admin" className="ml-2 font-semibold text-brand hover:underline">管理ページを開く →</Link>
           </p>
-        ) : status.claimed ? (
-          <p className="text-muted">管理者はすでに決まっています（このアカウントではありません）。</p>
         ) : (
           <>
             <p className="text-muted">
