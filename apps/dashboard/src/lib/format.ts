@@ -108,6 +108,7 @@ export const AUDIT_ACTION: Record<string, string> = {
   become_self_owner: "AgentGuard の管理者になった",
   confirm_sign_in: "ログインを本人と確認",
   sign_out_everywhere: "すべての端末からログアウト",
+  delete_history: "攻撃の記録を削除",
 };
 
 export const AUDIT_RESULT: Record<string, string> = {

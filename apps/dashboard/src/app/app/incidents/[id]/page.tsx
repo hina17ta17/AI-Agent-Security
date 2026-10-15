@@ -1,16 +1,17 @@
 "use client";
 
-import { Activity, ArrowLeft, ExternalLink, ListChecks, ShieldCheck, Swords } from "lucide-react";
+import { Activity, ArrowLeft, ExternalLink, ListChecks, ShieldCheck, Swords, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import type { ReactNode } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { type ReactNode, useState } from "react";
 
 import { ApprovalBanner } from "@/components/approval-banner";
 import { STATUS } from "@/components/incident-list";
 import { LiveFeed } from "@/components/live-feed";
 import { ReportCard } from "@/components/report";
 import { TimelineBar } from "@/components/timeline-bar";
-import { Badge, Card, CardHeader, Empty } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Empty } from "@/components/ui";
+import { useSession } from "@/lib/auth-context";
 import { ACTOR_LABEL, ATTACK_LABEL, AUDIT_ACTION, AUDIT_RESULT, dateTimeJst, SEVERITY, seconds, timeJst, yen } from "@/lib/format";
 import { useAudit, useIncident, usePendingApprovals, useSteps } from "@/lib/hooks";
 
@@ -20,6 +21,52 @@ function Row({ k, v }: { k: ReactNode; v: ReactNode }) {
       <span className="shrink-0 text-muted">{k}</span>
       <span className="min-w-0 text-right font-medium">{v}</span>
     </div>
+  );
+}
+
+/**
+ * Deleting this one attack record (its step-by-step record and report go with it). The record of
+ * actions and of sign-ins stays, as evidence; blocks stay as they are.
+ */
+function DeleteRecord({ id, status }: { id: string; status: string }) {
+  const { api } = useSession();
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const locked = status === "analyzing" ? "AIチームが対応している最中は、削除できません。"
+    : status === "awaiting_approval" ? "あなたの承認を待っているあいだは、削除できません。" : null;
+
+  async function remove() {
+    if (!window.confirm("この攻撃の記録（AIチームの対応と報告書）を削除しますか？\n元には戻せません。ブロックはそのまま続きます。")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/api/history", { method: "DELETE", body: { incidentId: id } });
+      router.replace("/app/history");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "削除できませんでした");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1 text-xs text-muted">
+          <p className="font-bold text-ink">この記録を削除する</p>
+          <p className="mt-0.5">
+            この攻撃の記録（AIチームの対応と報告書）だけを消します。ブロックはそのまま続きます。
+            「操作の記録」と「ログイン」の記録は、乗っ取りなどがあったときの証拠になるので、消さずに残します（削除したことも記録されます）。
+          </p>
+          {locked && <p className="mt-1 font-semibold text-amber-700">{locked}</p>}
+          {error && <p className="mt-1 text-rose-600">{error}</p>}
+        </div>
+        <Button variant="ghost" disabled={busy || locked !== null} onClick={() => void remove()}
+                className="text-rose-600 hover:bg-rose-50">
+          <Trash2 size={15} /> {busy ? "削除中…" : "この記録を削除する"}
+        </Button>
+      </div>
+    </Card>
   );
 }
 
@@ -147,6 +194,7 @@ export default function IncidentPage() {
           </Card>
         </div>
       </div>
+      <DeleteRecord id={incident.id} status={incident.status} />
     </div>
   );
 }
