@@ -29,27 +29,32 @@
     <rect x="760" y="130" width="340" height="210" rx="18" fill="#fff" stroke="#c7d2fe" stroke-width="2"/>
     <rect x="1160" y="130" width="400" height="100" rx="18" fill="#fff" stroke="#e2e8f0"/>
   </g>
-  <text x="62" y="168" font-size="18" font-weight="700" fill="#0f172a">利用者のブラウザ</text>
-  <text x="62" y="200" font-size="14" fill="#334155">ダッシュボード</text>
-  <text x="62" y="222" font-size="13" fill="#64748b">実況・承認・設定・攻撃シミュレーター</text>
-  <text x="62" y="256" font-size="14" fill="#334155">デモサイト「ひだまり雑貨店」</text>
-  <text x="62" y="278" font-size="13" fill="#64748b">利用者ごとに専用のサイト</text>
+  <text x="62" y="166" font-size="18" font-weight="700" fill="#0f172a">利用者のサイト</text>
+  <text x="62" y="190" font-size="13" fill="#334155">Next.js / Express / FastAPI</text>
+  <text x="62" y="212" font-size="12.5" fill="#64748b">つなぐプログラム1つが、全アクセスを</text>
+  <text x="62" y="232" font-size="12.5" fill="#64748b">サイトの処理より先に検査に回す</text>
+  <text x="62" y="270" font-size="15" font-weight="700" fill="#0f172a">利用者のブラウザ</text>
+  <text x="62" y="294" font-size="13" fill="#334155">ダッシュボード</text>
+  <text x="62" y="314" font-size="12.5" fill="#64748b">実況・承認・設定・攻撃シミュレーター</text>
+  <line x1="56" y1="248" x2="284" y2="248" stroke="#e2e8f0" stroke-width="1.5"/>
 
   <text x="382" y="166" font-size="13" font-weight="700" fill="#4f46e5">Cloud Run</text>
   <text x="382" y="190" font-size="18" font-weight="700" fill="#0f172a">dashboard（Next.js 16）</text>
   <text x="382" y="212" font-size="12" fill="#64748b" font-family="monospace">sa-dashboard</text>
-  <text x="382" y="240" font-size="13" fill="#334155">・ログインした本人のデータだけを操作</text>
-  <text x="382" y="262" font-size="13" fill="#334155">・APIキーを検証して KMS で暗号化</text>
-  <text x="382" y="284" font-size="13" fill="#334155">・攻撃シミュレーター（自分のサイトのみ）</text>
-  <text x="382" y="306" font-size="13" fill="#334155">・人の承認・ブロック解除（人だけ）</text>
+  <text x="382" y="236" font-size="13" fill="#334155">・ログインした本人のデータだけを操作</text>
+  <text x="382" y="257" font-size="13" fill="#334155">・サイト登録・接続キー・設定フォルダ</text>
+  <text x="382" y="278" font-size="13" fill="#334155">・自分へのアクセスもミハリで検査（自己防衛）</text>
+  <text x="382" y="299" font-size="13" fill="#334155">・人の承認・ブロック解除・管理者ページ</text>
+  <text x="382" y="320" font-size="13" fill="#334155">・攻撃シミュレーター（本物は送らない）</text>
 
   <text x="782" y="166" font-size="13" font-weight="700" fill="#4f46e5">Cloud Run</text>
   <text x="782" y="190" font-size="18" font-weight="700" fill="#0f172a">target ＋ ミハリ（WAF）</text>
   <text x="782" y="212" font-size="12" fill="#64748b" font-family="monospace">sa-target</text>
-  <text x="782" y="240" font-size="13" fill="#334155">・ルール判定 約0.1ms で即 403</text>
-  <text x="782" y="262" font-size="13" fill="#334155">・ブロック中IP・メンテナンスを毎回確認</text>
-  <text x="782" y="284" font-size="13" fill="#334155">・擬似IPはダッシュボードの署名付きのみ</text>
-  <text x="782" y="306" font-size="13" fill="#334155">・検知したら Pub/Sub へ通知</text>
+  <text x="782" y="236" font-size="13" fill="#334155">・ルール判定 約0.1ms で即 403</text>
+  <text x="782" y="257" font-size="13" fill="#334155">・接続キーでサイトを見分ける（/ingest）</text>
+  <text x="782" y="278" font-size="13" fill="#334155">・ブロック中IP・メンテナンスを毎回確認</text>
+  <text x="782" y="299" font-size="13" fill="#334155">・DB に障害があってもルールだけで判定</text>
+  <text x="782" y="320" font-size="13" fill="#334155">・検知したら Pub/Sub へ通知</text>
 
   <text x="1182" y="166" font-size="18" font-weight="700" fill="#0f172a">Pub/Sub：security-events</text>
   <text x="1182" y="196" font-size="13" fill="#64748b">push（OIDC 認証）・失敗時は DLQ へ退避</text>
@@ -59,9 +64,12 @@
   <text x="1182" y="310" font-size="13" fill="#047857">攻撃を検知したときだけ AI チームを起動</text>
 
   <!-- Row 1 arrows -->
-  <line x1="300" y1="185" x2="356" y2="185" stroke="#4f46e5" stroke-width="2.5" marker-end="url(#arrB)"/>
+  <line x1="300" y1="290" x2="356" y2="290" stroke="#4f46e5" stroke-width="2.5" marker-end="url(#arrB)"/>
   <line x1="700" y1="200" x2="756" y2="200" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrR)"/>
-  <text x="730" y="120" font-size="12" fill="#f43f5e" text-anchor="middle">攻撃シミュレーション（IDトークン付き）</text>
+  <path d="M 170 130 V 116 H 930 V 126" fill="none" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrR)"/>
+  <text x="560" y="110" font-size="12" fill="#f43f5e" text-anchor="middle">サイトへの全アクセスを検査（接続キー付き・ブロック中なら 403）</text>
+  <text x="728" y="226" font-size="11" fill="#f43f5e" text-anchor="middle">模擬攻撃</text>
+  <text x="728" y="240" font-size="11" fill="#f43f5e" text-anchor="middle">自己防衛</text>
   <line x1="1100" y1="180" x2="1156" y2="180" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrR)"/>
   <text x="1130" y="120" font-size="12" fill="#f43f5e" text-anchor="middle">検知イベント</text>
 
