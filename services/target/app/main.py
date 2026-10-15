@@ -87,12 +87,17 @@ def _bearer(request: Request) -> str:
 
 async def _authenticate_ingest(request: Request, req: ingest.IngestRequest) -> tuple[str | None, str]:
     """Returns (tenant_id, how): "key" (a site's ingest key), "self" (AgentGuard's own dashboard) or
-    "sim" (the attack simulator). None tenant_id means the caller is not authorized."""
+    "sim" (the attack simulator). None tenant_id means the caller is not authorized, except with how
+    "unchecked": the key could not be looked up at all (a database hiccup)."""
     token = _bearer(request)
     if not token:
         return None, ""
     store: Store = app.state.store
-    tenant_id, _host = await store.tenant_for_ingest_key(ingest.hash_key(token))
+    try:
+        tenant_id, _host = await store.tenant_for_ingest_key(ingest.hash_key(token))
+    except Exception as exc:
+        log("WARNING", "could not look up the ingest key", error=repr(exc)[:200])
+        return None, "unchecked"
     if tenant_id:
         return tenant_id, "key"  # a real site's ingest key
     settings = app.state.settings
@@ -125,6 +130,17 @@ async def ingest_request(request: Request):
         return JSONResponse({"error": "invalid request"}, status_code=400)
 
     tenant_id, how = await _authenticate_ingest(request, req)
+    if how == "unchecked":
+        # An error answer would make the site's code let the request through. Answer with the rules
+        # alone instead; nothing is recorded or handed to the AI without a known tenant.
+        t_rules = time.perf_counter()
+        detection = ingest.inspect_payload(req)
+        rule_ms = (time.perf_counter() - t_rules) * 1000
+        ip, _ = ingest.resolve_ip(req, False)
+        if detection:
+            return _ingest_decision("block", ip, rule_ms, rule_id=detection.rule_id,
+                                    attack_type=detection.attack_type, reason_ja=detection.label_ja)
+        return _ingest_decision("allow", ip, rule_ms)
     if not tenant_id:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     simulated = how == "sim"
@@ -145,15 +161,28 @@ async def ingest_request(request: Request):
     detection = ingest.inspect_payload(req)
     rule_ms = (time.perf_counter() - t_rules) * 1000
 
-    block = await store.active_block(tenant_id, ip)
-    if block:
+    # A database hiccup must never turn into an error answer: the site's code lets the request through
+    # on an error, so a detected attack would pass. Without the lookups, the rules still decide.
+    try:
+        block = await store.active_block(tenant_id, ip)
+    except Exception as exc:
+        log("WARNING", "could not check the blocklist", tenantId=tenant_id, error=repr(exc)[:200])
+        block = None
+    try:
+        state = await store.tenant_state(tenant_id)
+    except Exception as exc:
+        log("WARNING", "could not read the site settings", tenantId=tenant_id, error=repr(exc)[:200])
+        state = None
+    # An allowlisted address is never blocked, even by a block made before it was allowlisted.
+    allowlisted = state is not None and _in_allowlist(ip, state.allowlist)
+
+    if block and not allowlisted:
         await store.count_blocked_hit(tenant_id, ip)
         until = block.get("expiresAt")
         return _ingest_decision("block", ip, rule_ms, reason_ja=block.get("reasonJa") or "ブロック中のIPです。",
                                 until=until.isoformat() if until else None)
 
-    state = await store.tenant_state(tenant_id)
-    if state.in_maintenance(received_at) and not _in_allowlist(ip, state.allowlist):
+    if state is not None and state.in_maintenance(received_at) and not allowlisted:
         return _ingest_decision("maintenance", ip, rule_ms, reason_ja="メンテナンス中です。")
 
     if detection:

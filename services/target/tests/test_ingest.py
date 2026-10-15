@@ -157,6 +157,43 @@ def test_blocked_ip_is_rejected_without_a_new_event(env):
     assert store.hits == ["198.51.100.9"] and publisher.events == []
 
 
+def test_a_database_hiccup_never_lets_a_detected_attack_through(env):
+    # An error answer makes the site's code let the request through, so the rules must still decide.
+    client, store, _ = env
+
+    async def broken(*_):
+        raise RuntimeError("firestore unavailable")
+
+    store.active_block = broken
+    store.tenant_state = broken
+    r = client.post("/ingest", json={"method": "GET", "path": "/search", "query": {"q": "1' OR '1'='1"}, "ip": "198.51.100.9"},
+                    headers=key_auth())
+    assert r.status_code == 200 and r.json()["decision"] == "block"
+    r = client.post("/ingest", json={"path": "/", "ip": "198.51.100.9"}, headers=key_auth())
+    assert r.status_code == 200 and r.json()["decision"] == "allow"
+
+
+def test_a_key_lookup_hiccup_still_answers_with_the_rules(env):
+    client, store, publisher = env
+
+    async def broken(*_):
+        raise RuntimeError("firestore unavailable")
+
+    store.tenant_for_ingest_key = broken
+    r = client.post("/ingest", json={"method": "GET", "path": "/search", "query": {"q": "1' OR '1'='1"}, "ip": "198.51.100.9"},
+                    headers=key_auth())
+    assert r.status_code == 200 and r.json()["decision"] == "block"
+    assert publisher.events == [] and store.reports == []  # nothing recorded without a known tenant
+
+
+def test_an_allowlisted_ip_is_not_held_by_an_older_block(env):
+    client, store, _ = env
+    store.blocks["198.51.100.9"] = {"reasonJa": "前の攻撃", "expiresAt": datetime.now(timezone.utc) + timedelta(minutes=30)}
+    store.state = TenantState(tenant_id=TENANT, allowlist=["198.51.100.0/24"])
+    r = client.post("/ingest", json={"path": "/", "ip": "198.51.100.9"}, headers=key_auth())
+    assert r.json()["decision"] == "allow" and store.hits == []
+
+
 # ---------------------------------------------------------------------------- AgentGuard protects itself
 
 def with_self_tenant(tenant_id):
