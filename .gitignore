@@ -41,3 +41,8 @@ firestore-debug.log
 .DS_Store
 Thumbs.db
 .idea/
+
+# The intro video project and screen recordings (large media; not part of the product)
+video/
+*.mp4
+submission/

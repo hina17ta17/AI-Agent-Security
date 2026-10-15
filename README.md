@@ -6,8 +6,10 @@ AgentGuard は、ふだんは軽量な WAF「ミハリ」が静かに見張り�
 
 - 🔗 **デモ**：https://dashboard-1032914465512.asia-northeast1.run.app
   - 審査用のテストアカウントは、提出フォームに記載しています（APIキーがなくても「デモモード」で動きます）
-- 🎬 **デモ動画**：提出フォームを参照
+- 🎬 **デモ動画（3分）**：https://youtu.be/ev6Bw70ns0Q
 - 第5回 Agentic AI Hackathon with Google Cloud 提出作品
+
+[![AgentGuard 紹介動画（YouTube）](https://img.youtube.com/vi/ev6Bw70ns0Q/maxresdefault.jpg)](https://youtu.be/ev6Bw70ns0Q)
 
 ![AgentGuard アーキテクチャ](docs/architecture.png)
 
