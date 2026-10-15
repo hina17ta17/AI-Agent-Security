@@ -3,7 +3,8 @@ rules_version = '2';
 // AgentGuard Firestore rules.
 // - Browsers may only READ their own tenant's data (live dashboard).
 // - Every write goes through the server (Admin SDK bypasses these rules).
-// - tenantSecrets (encrypted Gemini API keys), sites, usage: no client access at all.
+// - Outside tenants/{uid} (tenantSecrets = encrypted Gemini API keys, ingestKeys, siteClaims,
+//   status, config): no client access at all. An account's own usage counts are under its tenant.
 service cloud.firestore {
   match /databases/{database}/documents {
 
