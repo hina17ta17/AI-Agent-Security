@@ -4,7 +4,7 @@
   RUN THIS YOURSELF in your own PowerShell window (not through Claude),
   while logged in to gcloud with YOUR OWN Google account (project owner).
 
-    powershell -ExecutionPolicy Bypass -File infra\bootstrap.ps1 -ProjectId YOUR_PROJECT_ID -ClaudeAccount CLAUDE_ONLY_ACCOUNT@gmail.com
+    powershell -ExecutionPolicy Bypass -File infra\bootstrap.ps1 -ProjectId YOUR_PROJECT_ID -ClaudeAccount YOUR_ACCOUNT@gmail.com
 
   -ClaudeAccount is a separate Google account used only by Claude Code.
   It gets exactly one permission: acting as the limited claude-dev service account.

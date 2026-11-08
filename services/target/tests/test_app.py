@@ -11,6 +11,11 @@ def client():
         project_id="test", events_topic="t", dashboard_sa="sa-dashboard@test.iam.gserviceaccount.com",
         sim_audience="https://target.test",
     )
+    # These endpoints never touch the database, Pub/Sub or token checks. Placeholders keep
+    # startup from creating real Google Cloud clients, so the tests run without credentials (CI).
+    main.app.state.store = object()
+    main.app.state.publisher = object()
+    main.app.state.verifier = object()
     return TestClient(main.app)
 
 
